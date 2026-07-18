@@ -1032,20 +1032,65 @@ function srcChips(sources){
   }
   return `<div class="srcs">${chips.join('')}</div>`;
 }
-function showSrc(i){
+async function showSrc(i){
   const s = SRC_REG[i]; if(!s) return;
   const sp = String(s.source_path || '');
   const label = srcLabel(sp);
   const ov = document.createElement('div');
   ov.className = 'gmodal-ov';
   ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  // 원본 문서 조회 (doc_id 있으면 원문 뷰어, 없거나 실패 시 발췌 폴백)
+  let doc = null;
+  if(s.doc_id){
+    ov.innerHTML = `<div class="gmodal" style="width:680px"><div class="mutetxt"><span class="loading">원문 불러오는 중</span></div></div>`;
+    try{ doc = await (await fetch('/source-doc/' + s.doc_id)).json(); }catch(e){ doc = null; }
+  }
+  const head = (extra) => `<div class="mh"><span>${icon('IconPaperclip',16)} ${esc(label)}
+      <span class="mutetxt" style="font-weight:400">p.${esc(s.page_no)}</span></span>
+    <span style="display:flex;gap:8px;align-items:center">${extra||''}
+      <button class="backlink" style="margin:0" onclick="this.closest('.gmodal-ov').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></span></div>`;
+  const dlBtn = doc && doc.doc_id
+    ? `<a class="btn outline sm" style="text-decoration:none" href="/source-doc/${doc.doc_id}/file?dl=1">${icon('IconDownload',13)} 원본 다운로드</a>` : '';
+
+  if(doc && doc.kind === 'pdf'){
+    // PDF: 브라우저 내장 뷰어로 해당 페이지 바로 열기
+    ov.innerHTML = `<div class="gmodal" style="width:860px;max-width:94vw">
+      ${head(dlBtn)}
+      <iframe src="/source-doc/${doc.doc_id}/file#page=${s.page_no||1}" style="width:100%;height:68vh;border:1px solid var(--border);border-radius:var(--radius)"></iframe></div>`;
+    return;
+  }
+  if(doc && doc.kind === 'text'){
+    // 텍스트: 전문 표시 + AI가 참고한 구절 하이라이트·스크롤 (개인정보 자동 마스킹 적용본)
+    // 발췌는 마스킹 전 원문이므로, 서버와 동일한 마스킹을 적용한 뒤 마스킹본에서 찾는다
+    const maskJs = t => String(t)
+      .replace(/\b\d{6}[- ]\d{7}\b/g, '******-*******')
+      .replace(/\b01\d[- ]?\d{3,4}[- ]?\d{4}\b/g, '01*-****-****')
+      .replace(/\b0\d{1,2}-\d{3,4}-\d{4}\b/g, '0**-****-****')
+      .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '****@****');
+    const masked = maskJs(String(s.content||'').trim());
+    const needle = masked.slice(0, 60);
+    const idx = needle ? doc.text.indexOf(needle) : -1;
+    const hlLen = idx >= 0 ? Math.min(masked.length, 800) : 0;
+    const body = idx >= 0
+      ? esc(doc.text.slice(0, idx)) + `<mark id="src-hl" style="background:#fef08a;border-radius:2px">` + esc(doc.text.slice(idx, idx+hlLen)) + `</mark>` + esc(doc.text.slice(idx+hlLen))
+      : esc(doc.text);
+    ov.innerHTML = `<div class="gmodal" style="width:760px;max-width:94vw">
+      ${head(dlBtn)}
+      <div class="mcap">원문 전체 · <span class="llm-chip ok" style="font-size:11px;padding:1px 8px">개인정보 자동 마스킹 적용 (프로토타입)</span>${idx>=0?' · 노란 표시 = AI가 참고한 구절':''}</div>
+      <p id="src-body" style="white-space:pre-wrap;max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;background:var(--slate-50)">${body}</p>
+      <div class="mutetxt" style="font-size:11px;word-break:break-all">문서구분: ${esc(doc.doc_type||'-')} · 출처: ${esc(sp)}</div></div>`;
+    const hl = document.getElementById('src-hl');
+    if(hl) hl.scrollIntoView({block:'center'});
+    return;
+  }
+  // 폴백: 원본 파일이 없으면 저장된 발췌만 표시
   ov.innerHTML = `<div class="gmodal" style="width:640px">
-    <div class="mh"><span>${icon('IconPaperclip',16)} ${esc(label)} <span class="mutetxt" style="font-weight:400">p.${esc(s.page_no)}</span></span>
-      <button class="backlink" style="margin:0" onclick="this.closest('.gmodal-ov').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
-    <div class="mcap">AI가 참고한 원문 발췌</div>
+    ${head('')}
+    <div class="mcap">AI가 참고한 원문 발췌${doc&&doc.detail?` <span class="note">— ${esc(doc.detail)}</span>`:''}</div>
     <p style="white-space:pre-wrap;max-height:52vh;overflow:auto">${esc(s.content || '(발췌 내용 없음)')}</p>
     <div class="mutetxt" style="font-size:11px;word-break:break-all">출처: ${esc(sp)}</div></div>`;
-  document.body.appendChild(ov);
 }
 
 function renderMsg(m){

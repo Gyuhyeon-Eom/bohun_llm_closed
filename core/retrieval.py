@@ -42,7 +42,7 @@ def hybrid_search(query: str, query_vec: list[float],
             UNION ALL SELECT chunk_id, r, %(ws)s::float FROM sparse) u
       GROUP BY chunk_id ORDER BY score DESC, chunk_id LIMIT %(top)s
     )
-    SELECT c.chunk_id, c.content, c.block_type, c.page_no, d.source_path, f.score
+    SELECT c.chunk_id, c.content, c.block_type, c.page_no, d.doc_id, d.source_path, f.score
     FROM fused f JOIN chunks c USING (chunk_id) JOIN documents d USING (doc_id)
     ORDER BY f.score DESC
     """

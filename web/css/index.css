@@ -357,3 +357,4 @@ table.ds tbody tr{transition:background .15s}
 #v-chat .chist.on .ct{font-weight:600}
 .src.click{cursor:pointer;transition:border-color .15s,color .15s,background .15s}
 .src.click:hover{border-color:var(--slate-400);color:var(--fg);background:var(--slate-50)}
+.src.click{color:var(--blue-600,#2563eb);border-color:#bfdbfe;text-decoration:underline;text-underline-offset:2px}

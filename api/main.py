@@ -119,6 +119,23 @@ def api_chatbot(q: Question):
     return {**r, "session_id": sid}
 
 
+@app.get("/source-doc/{doc_id}")      # 근거 원문 미리보기 (텍스트는 마스킹 본문 포함)
+def api_source_doc(doc_id: int):
+    from services import source_doc
+    return source_doc.load(doc_id)
+
+
+@app.get("/source-doc/{doc_id}/file") # 근거 원문 파일 (dl=1이면 다운로드, 아니면 인라인 — PDF #page 이동용)
+def api_source_doc_file(doc_id: int, dl: int = 0):
+    from services import source_doc
+    r = source_doc.export_file(doc_id)
+    if not r:
+        return {"error": "원본 파일을 제공할 수 없습니다 (미등록·삭제·미지원 형식)"}
+    fname, path, media = r
+    return FileResponse(path, filename=fname, media_type=media,
+                        content_disposition_type="attachment" if dl else "inline")
+
+
 @app.get("/chat-sessions")            # 챗봇 과거기록: 세션 목록 (최근순)
 def api_chat_sessions():
     return chatbot.list_sessions()

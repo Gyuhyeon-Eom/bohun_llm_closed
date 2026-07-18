@@ -42,7 +42,7 @@ def save_exchange(session_id: int | None, question: str, answer: str, sources: l
                     (session_id, seq + 1, question))
         cur.execute("INSERT INTO chat_message(cs_id, seq, role, content, sources) VALUES (%s,%s,'ai',%s,%s)",
                     (session_id, seq + 2, answer,
-                     json.dumps([{k: s.get(k) for k in ("source_path", "page_no", "content", "block_type")}
+                     json.dumps([{k: s.get(k) for k in ("doc_id", "source_path", "page_no", "content", "block_type")}
                                  for s in (sources or [])], ensure_ascii=False, default=str)))
         cur.execute("UPDATE chat_session SET last_at=now() WHERE cs_id=%s", (session_id,))
     return session_id
