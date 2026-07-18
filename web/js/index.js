@@ -23,7 +23,7 @@ const SNB_ITEMS = ['민원접수','심사등록','보상급여','제대군인','
 
 let cases = [], selId = null, doc = null;
 let tab = 'report', curSec = 0, panel = 'ai';
-let visitedSecs = new Set(), ckState = [], ckCollapsed = false;
+let visitedSecs = new Set(), ckState = [], ckCollapsed = true;   // 체크리스트 바는 기본 접힘 — 클릭 시 펼침
 let editLog = [];                 // 수정이력 패널 (세션 단위)
 let similarCache = null;          // 유사사례 패널 캐시
 let aiPanelLog = [];              // AI 검토 패널 질의응답
@@ -200,7 +200,7 @@ async function enterCase(id){
   doc = d;
   tab='report'; curSec=0; panel='ai';
   visitedSecs = new Set(); ckState = (doc.checklist||[]).map(()=>false);
-  editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; ckCollapsed = false;
+  editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; ckCollapsed = true;  // 진입 시에도 접힘 유지
   gv = {mode:'list', ga:null, tab:'info', diseaseInput:'', part:null, pred:null, predLoading:false, modal:null, predSel:0};
   logEvent('AI 자동생성', '공통뼈대 1~4장 자료 패키지 조립 (병적·의무기록·법령·분과기준)');
   $('gnav-back').innerHTML = icon('IconChevronLeft', 18);
@@ -1059,11 +1059,14 @@ async function showSrc(i){
 
   if(doc && doc.kind === 'pdf'){
     // PDF: 브라우저 내장 뷰어로 해당 페이지 바로 열기
-    ov.innerHTML = `<div class="gmodal" style="width:860px;max-width:94vw">
+    const excerpt = String(s.content||'').trim();
+    ov.innerHTML = `<div class="gmodal" style="width:880px;max-width:94vw">
       ${head(dlBtn)}
-      <div class="mcap">${doc.scan?'스캔 원본':'PDF 원문'} · p.${esc(s.page_no||1)}로 이동
+      <div class="mcap">${doc.scan?'스캔 원본':'PDF 원문'} · <b>p.${esc(s.page_no||1)}</b>(으)로 이동됨
         <span class="llm-chip bad" style="font-size:11px;padding:1px 8px;margin-left:6px">스캔 원문 — 마스킹 미적용 (개인정보 접근권한 연계 예정)</span></div>
-      <iframe src="/source-doc/${doc.doc_id}/file#page=${s.page_no||1}" style="width:100%;height:66vh;border:1px solid var(--border);border-radius:var(--radius)"></iframe></div>`;
+      ${excerpt?`<div class="srcexcerpt">${icon('IconSearch',13,'color:var(--amber-600);margin-right:4px')}<b>p.${esc(s.page_no||1)}에서 이 구절을 확인하세요</b> <span class="mutetxt">— AI가 참고한 부분 (원문 대조용)</span>
+        <p>${esc(excerpt.slice(0,320))}${excerpt.length>320?'…':''}</p></div>`:''}
+      <iframe src="/source-doc/${doc.doc_id}/file#page=${s.page_no||1}" style="width:100%;height:${excerpt?'56vh':'66vh'};border:1px solid var(--border);border-radius:var(--radius)"></iframe></div>`;
     return;
   }
   if(doc && doc.kind === 'text'){
