@@ -1058,7 +1058,9 @@ async function showSrc(i){
     // PDF: 브라우저 내장 뷰어로 해당 페이지 바로 열기
     ov.innerHTML = `<div class="gmodal" style="width:860px;max-width:94vw">
       ${head(dlBtn)}
-      <iframe src="/source-doc/${doc.doc_id}/file#page=${s.page_no||1}" style="width:100%;height:68vh;border:1px solid var(--border);border-radius:var(--radius)"></iframe></div>`;
+      <div class="mcap">${doc.scan?'스캔 원본':'PDF 원문'} · p.${esc(s.page_no||1)}로 이동
+        <span class="llm-chip bad" style="font-size:11px;padding:1px 8px;margin-left:6px">스캔 원문 — 마스킹 미적용 (개인정보 접근권한 연계 예정)</span></div>
+      <iframe src="/source-doc/${doc.doc_id}/file#page=${s.page_no||1}" style="width:100%;height:66vh;border:1px solid var(--border);border-radius:var(--radius)"></iframe></div>`;
     return;
   }
   if(doc && doc.kind === 'text'){

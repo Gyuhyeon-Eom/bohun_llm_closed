@@ -32,7 +32,7 @@ def mask(text: str) -> str:
 
 def _row(doc_id: int) -> dict | None:
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
-        cur.execute("SELECT doc_id, doc_type, source_path FROM documents WHERE doc_id=%s", (doc_id,))
+        cur.execute("SELECT doc_id, doc_type, source_path, orig_path FROM documents WHERE doc_id=%s", (doc_id,))
         return cur.fetchone()
 
 
@@ -45,10 +45,17 @@ def _parse(source_path: str) -> tuple[Path, str]:
 
 
 def load(doc_id: int) -> dict:
-    """미리보기용 메타+내용. kind: text(마스킹 본문 포함) | pdf | missing."""
+    """미리보기용 메타+내용. kind: text(마스킹 본문 포함) | pdf | missing.
+    원본 스캔 파일(orig_path, 보통 PDF)이 있으면 그것을 원문으로 우선한다 —
+    OCR 텍스트는 파생물이고 심사관이 봐야 할 '원문'은 스캔본이기 때문."""
     row = _row(doc_id)
     if not row:
         return {"kind": "missing", "detail": "등록되지 않은 문서"}
+    if row.get("orig_path"):
+        oreal, oname = _parse(row["orig_path"])
+        if oreal.is_file() and oreal.suffix.lower() == ".pdf":
+            return {"kind": "pdf", "doc_id": doc_id, "name": oname,
+                    "doc_type": row["doc_type"], "scan": True}
     real, name = _parse(row["source_path"])
     if not real.is_file():
         return {"kind": "missing", "name": name, "doc_type": row["doc_type"],
@@ -69,6 +76,11 @@ def export_file(doc_id: int) -> tuple[str, str, str] | None:
     row = _row(doc_id)
     if not row:
         return None
+    if row.get("orig_path"):                       # 원본 스캔 PDF 우선
+        oreal, oname = _parse(row["orig_path"])
+        if oreal.is_file() and oreal.suffix.lower() == ".pdf":
+            return (oname if oname.endswith(".pdf") else f"{oname}.pdf",
+                    str(oreal), "application/pdf")
     real, name = _parse(row["source_path"])
     if not real.is_file():
         return None

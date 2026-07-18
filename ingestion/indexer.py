@@ -16,7 +16,9 @@ def sha256_of(path: str) -> str:
 
 
 def index_document(path: str, doc_type: str, chunks: list[Chunk],
-                   vectors: list[list[float]], ocr_engine: str) -> int:
+                   vectors: list[list[float]], ocr_engine: str,
+                   orig_path: str | None = None) -> int:
+    """orig_path: 원본 스캔 파일(PDF 등) 경로 — OCR 텍스트(path)와 별개로 보관 (원문 열람용)."""
     assert len(chunks) == len(vectors)
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
         digest = sha256_of(path)
@@ -24,9 +26,9 @@ def index_document(path: str, doc_type: str, chunks: list[Chunk],
         if cur.fetchone():
             return 0  # 이미 적재됨 (멱등)
         cur.execute(
-            "INSERT INTO documents(source_path, doc_type, sha256, ocr_engine)"
-            " VALUES (%s,%s,%s,%s) RETURNING doc_id",
-            (path, doc_type, digest, ocr_engine))
+            "INSERT INTO documents(source_path, doc_type, sha256, ocr_engine, orig_path)"
+            " VALUES (%s,%s,%s,%s,%s) RETURNING doc_id",
+            (path, doc_type, digest, ocr_engine, orig_path))
         doc_id = cur.fetchone()[0]
         for c, v in zip(chunks, vectors):
             cur.execute(

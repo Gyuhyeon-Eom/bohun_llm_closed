@@ -119,7 +119,7 @@ def download_system():
           OUT / "system" / f"Python-{PY_FULL}.tgz")
     fetch("https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.0.tar.gz",
           OUT / "system" / "pgvector-0.8.0.tar.gz")
-    fetch("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf",
+    fetch("https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Regular.ttf",
           OUT / "fonts" / "NanumGothic-Regular.ttf")
     print("  ※ PostgreSQL 본체는 서버 OS 확정 후 배포판 패키지로 — TRANSFER_LIST.md 4-나")
 

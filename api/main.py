@@ -42,6 +42,8 @@ class IngestReq(BaseModel):
     text: str
     filename: str = "붙여넣기"
     low_quality: bool = False     # True면 전 블록을 저신뢰(0.5)로 취급 -> 교정기 통과
+    orig_name: str | None = None  # 원본 스캔 파일명 (PDF) — 출처 클릭 시 이 원본을 연다
+    orig_b64: str | None = None   # 원본 스캔 파일 내용 (base64)
 
 
 class SimilarReq(BaseModel):
@@ -92,11 +94,22 @@ def api_ingest(req: IngestReq):
     n_corrected = sum(1 for b in verified if b.meta.get("verified"))
     chunks = chunk_blocks(verified)
     vecs = _emb.encode([c.content for c in chunks])
+    # 원본 스캔 파일(PDF) 동봉 시 보관 — 출처 클릭 시 이 원본의 해당 페이지를 연다
+    orig_path = None
+    if req.orig_b64 and req.orig_name:
+        import base64
+        updir = Path(__file__).parent.parent / "data" / "uploads"
+        updir.mkdir(parents=True, exist_ok=True)
+        safe = "".join(c for c in req.orig_name if c not in '/\\:*?"<>|')
+        orig = updir / f"{time.time_ns()}_{safe}"
+        orig.write_bytes(base64.b64decode(req.orig_b64))
+        orig_path = f"{orig}#{safe}"
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write(req.text); tmp = f.name
-    n = index_document(f"{tmp}#{req.filename}#{time.time_ns()}", "ui_upload", chunks, vecs, "ui")
+    n = index_document(f"{tmp}#{req.filename}#{time.time_ns()}", "ui_upload", chunks, vecs, "ui",
+                       orig_path=orig_path)
     return {"filename": req.filename, "blocks": len(blocks), "corrected": n_corrected,
-            "chunks": n, "seconds": round(time.time() - t0, 2)}
+            "chunks": n, "orig": bool(orig_path), "seconds": round(time.time() - t0, 2)}
 
 
 @app.post("/chatbot")                 # 기능② (성공 왕복은 세션 기록으로 저장)

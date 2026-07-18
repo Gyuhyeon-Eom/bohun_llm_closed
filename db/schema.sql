@@ -76,3 +76,6 @@ CREATE OR REPLACE VIEW v_stats_by_year AS
   FROM cases GROUP BY 1,2;
 CREATE OR REPLACE VIEW v_stats_by_kcd AS
   SELECT unnest(kcd_codes) AS kcd_code, decision, count(*) AS cnt FROM cases GROUP BY 1,2;
+
+-- 원본 스캔 파일 (명세서 v0.13 09 원문서류 축약): OCR 텍스트와 별개로 스캔 PDF 원본 경로 보관
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS orig_path TEXT;

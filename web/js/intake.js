@@ -8,7 +8,12 @@ $('file').onchange = e=>{
   const f=e.target.files[0]; if(!f) return;
   f.text().then(t=>{ $('text').value=t; });
 };
-$('clear').onclick = ()=>{ $('text').value=''; $('file').value=''; };
+$('clear').onclick = ()=>{ $('text').value=''; $('file').value=''; $('orig').value=''; };
+
+function readB64(file){    // 원본 스캔 PDF -> base64 (dataURL 앞부분 제거)
+  return new Promise(res=>{ const r=new FileReader();
+    r.onload=()=>res(String(r.result).split(',')[1]); r.readAsDataURL(file); });
+}
 
 function ledgerEntry(name){
   const div=document.createElement('div'); div.className='entry';
@@ -28,7 +33,9 @@ $('submit').onclick = async ()=>{
   $('submit').disabled=true;
   try{
     const r=await fetch('/ingest',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text, filename:name, low_quality:$('lowq').checked})});
+      body:JSON.stringify({text, filename:name, low_quality:$('lowq').checked,
+        orig_name:$('orig').files[0]?.name || null,
+        orig_b64:$('orig').files[0] ? await readB64($('orig').files[0]) : null})});
     if(!r.ok) throw new Error(await r.text());
     const d=await r.json(); mark(div,5);
     div.querySelector('.stat').innerHTML=
