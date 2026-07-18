@@ -13,6 +13,9 @@ def _or_tsquery(query: str) -> str:
     저품질 OCR 텍스트에서 재현율을 0에 가깝게 만든다 - 목데이터 실측으로 확인된 버그 수정.
     랭킹은 ts_rank가 일치 토큰 수 기준으로 처리."""
     tokens = re.findall(r"[0-9A-Za-z가-힣\-]+", query)
+    # 하이픈만으로 된 토큰('-', '---')은 to_tsquery 문법 오류를 일으킨다("예우법 - 4조" 류 질의).
+    # 영숫자·한글을 최소 1자 포함한 토큰만 남긴다.
+    tokens = [t for t in tokens if any(ch.isalnum() for ch in t)]
     return " | ".join(dict.fromkeys(tokens)) or "___none___"
 
 

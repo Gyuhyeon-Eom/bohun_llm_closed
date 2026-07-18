@@ -17,14 +17,28 @@ def profiles() -> dict:
     return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
 
 
+def profile_for(sub_no) -> dict:
+    """분과번호(정수/문자/None 허용)로 프로필 반환. 범위 밖·미상이면 1분과로 폴백(KeyError 방지)."""
+    key = str(sub_no) if sub_no is not None else "1"
+    p = profiles()
+    return p.get(key) or p["1"]
+
+
+def manual_doctype(sub_no) -> str | None:
+    """분과번호로 매뉴얼 doc_type 반환. 미상이면 None(전체 문서 검색 폴백)."""
+    return MANUAL_DOCTYPE.get(str(sub_no) if sub_no is not None else "")
+
+
 def resolve(kcd_codes: list[str] | None, review_content: str = "") -> tuple[str, dict]:
     """(분과번호, 프로필). 우선순위: 심의내용 키워드(고엽제->4, 자해->5, 전몰/전상->1) > KCD 접두."""
     rc = review_content or ""
-    if "고엽제" in rc or "사망" in rc and "자해" not in rc and any(
-            (c or "")[:1] in "CEFIJK" for c in (kcd_codes or [])):
-        return "4", profiles()["4"]
+    # 자해는 5분과 우선(고엽제·사망 키워드보다 먼저 분기해야 "고엽제+자해"가 5로 감).
     if "자해" in rc:
         return "5", profiles()["5"]
+    # 괄호 필수: and가 or보다 우선하므로 원래 코드는 "고엽제"만 있으면 무조건 4로 오배정했다.
+    if "고엽제" in rc or ("사망" in rc and any(
+            (c or "")[:1] in "CEFIJK" for c in (kcd_codes or []))):
+        return "4", profiles()["4"]
     if any(k in rc for k in ("전몰", "전상", "독립")):
         return "1", profiles()["1"]
     for code in (kcd_codes or []):

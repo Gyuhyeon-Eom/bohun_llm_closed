@@ -25,6 +25,6 @@ while True:
     if not hits:
         print("  관련 문서를 찾지 못했습니다."); continue
     ctx = "\n---\n".join(f"[{h['source_path'].split('/')[-1]}] {h['content'][:300]}" for h in hits)
-    print("  " + LLM.generate("chatbot", context=ctx, question=q).replace("\n", "\n  "))
+    print("  " + LLM.generate("chatbot", context=ctx, question=q, history="").replace("\n", "\n  "))
     for h in hits:
         print(f"  · 출처: {h['source_path'].split('/')[-1].split('#')[0]} p.{h['page_no']} (score {h['score']:.4f})")

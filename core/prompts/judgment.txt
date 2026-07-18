@@ -39,9 +39,11 @@
 
 [심의내용] {review_content} / 담당 {subcommittee}
 [선택된 판단] 국가유공자 축: {yeu_clause} {yeu_result} / 보훈보상 축: {bosang_clause} {bosang_result}
+[발생경위] {onset}
 
-[사건 자료]
+===== 사건 자료 시작 =====
 {dossier}
+===== 사건 자료 끝 =====
 
 [분과 판단기준]
 {criteria}

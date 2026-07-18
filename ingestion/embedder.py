@@ -27,6 +27,12 @@ class BgeEmbedder:
                     f"EMBED_MODEL 경로에 모델이 없습니다: {EMBED_MODEL}\n"
                     "  다운로드: hf download BAAI/bge-m3 --local-dir <경로>\n"
                     "  또는 온라인 자동 다운로드: export EMBED_MODEL=BAAI/bge-m3")
+            # 폐쇄망: 로컬 경로 모델이면 HF Hub 오프라인 강제. 없으면 transformers/huggingface_hub가
+            # 최신본 확인을 위해 hf.co에 접속을 시도해 첫 로드가 지연되거나 막힌다.
+            # (환경변수로 이미 지정돼 있으면 존중 — setdefault)
+            if EMBED_MODEL.startswith(("/", ".", "~")):
+                os.environ.setdefault("HF_HUB_OFFLINE", "1")
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
             if self._log:
                 print(f"[embed] bge-m3 로드 중... (model={EMBED_MODEL}, device={EMBED_DEVICE or 'auto'})")
             t0 = time.perf_counter()

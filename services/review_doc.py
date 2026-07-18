@@ -9,7 +9,7 @@ import psycopg
 from config.settings import PG_DSN
 from core.llm_client import LLMClient
 from core.graph import applied_clauses, cases_by_kcd
-from core.subcommittee import resolve as resolve_sub, MANUAL_DOCTYPE
+from core.subcommittee import resolve as resolve_sub, manual_doctype
 from core.retrieval import hybrid_search
 
 LAW_FULLNAME = {"예우법": "국가유공자 등 예우 및 지원에 관한 법률",
@@ -51,7 +51,7 @@ def build_fact_sheet(review_type: str, review_content: str, target_cond: str,
     criteria = []
     disease_terms = " ".join(k["disease"] or k["code"] for k in kcd_names) or review_content
     q = f"{disease_terms} 판단기준 심사 포인트"
-    for h in hybrid_search(q, emb.encode([q])[0], top_k=2, doc_type=MANUAL_DOCTYPE.get(sub_no)):
+    for h in hybrid_search(q, emb.encode([q])[0], top_k=2, doc_type=manual_doctype(sub_no)):
         criteria.append({"content": h["content"][:600], "source": sub["manual"]})
     return {"review_type": review_type, "review_content": review_content,
             "target_cond": target_cond, "kcd": kcd_names, "facts": facts,

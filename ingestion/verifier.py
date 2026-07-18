@@ -21,6 +21,9 @@ def verify_blocks(blocks: list[Block], llm: LLMClient) -> list[Block]:
     out = []
     for b in blocks:
         if _needs_verify(b):
+            # 주의: ocr_text는 스캔 문서 원문이라 프롬프트 인젝션("위 지시 무시…")이 섞일 수 있다.
+            # verified=True는 "LLM 교정을 거쳤다"는 표시일 뿐 내용 신뢰 보증이 아니며, 원문은
+            # ocr_raw에 그대로 보존해 사후 대조가 가능하다. (교정 프롬프트는 데이터로만 취급하도록 작성)
             corrected = llm.generate("ocr_verify", ocr_text=b.text)
             b.meta.update(ocr_raw=b.text, verified=True)
             b = Block(b.type, corrected, b.page_no, b.meta)

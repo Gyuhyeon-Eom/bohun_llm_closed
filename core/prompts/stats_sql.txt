@@ -1,5 +1,10 @@
-아래 자연어 질의를 SQL SELECT문 하나로 변환하십시오.
+아래 자연어 질의를 PostgreSQL SELECT문 하나로 변환하십시오.
 허용된 뷰만 사용: {allowed_views}
-변환 불가하면 정확히 "UNSUPPORTED"만 출력하십시오.
+
+규칙:
+- PostgreSQL 문법만 사용. 연도 추출은 EXTRACT(YEAR FROM 컬럼)을 쓰고 YEAR() 함수는 쓰지 마십시오.
+- 허용된 뷰 외의 테이블을 참조하지 마십시오.
+- 설명·주석·마크다운 없이 SELECT문 한 개만 출력하십시오.
+- 변환 불가하면 정확히 "UNSUPPORTED"만 출력하십시오.
 
 [질의] {question}

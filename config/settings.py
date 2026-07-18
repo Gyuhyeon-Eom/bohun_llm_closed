@@ -6,6 +6,10 @@ ROOT = Path(__file__).parent.parent
 
 # --- DB ---
 PG_DSN = os.getenv("PG_DSN", "postgresql://bohun:bohun@localhost:5432/bohun")
+# 통계(Text-to-SQL) 전용 읽기전용 접속. 미지정 시 PG_DSN으로 폴백(개발용).
+#   폐쇄망 운영: db/schema_readonly.sql로 bohun_ro 롤 생성 후 그 DSN 지정 -> 코드가 뚫려도
+#   DB 권한에서 SELECT·통계뷰 외 접근 2차 차단.
+PG_DSN_RO = os.getenv("PG_DSN_RO", PG_DSN)
 
 # --- 생성 LLM ---
 # LLM_BACKEND: "mock"(기본) | "openai" (OpenAI 호환 API - Ollama 로컬 LLM, FabriX 공통 사용)
@@ -13,6 +17,9 @@ PG_DSN = os.getenv("PG_DSN", "postgresql://bohun:bohun@localhost:5432/bohun")
 #                     FABRIX_MODEL=exaone3.5:7.8b (또는 받은 모델명)
 # TODO(확인): FabriX 규격 회신 시 아래 값만 실규격으로 교체 (호출 코드는 동일 경로).
 LLM_BACKEND = os.getenv("LLM_BACKEND", "mock")
+# 사용자 안내 문구에 쓰는 제공자 명칭. 개발(Ollama)=Ollama, 폐쇄망=FabriX 로 세팅하면
+# 에러 메시지가 실제 환경에 맞게 표시된다(코드 교체 불필요).
+LLM_PROVIDER_LABEL = os.getenv("LLM_PROVIDER_LABEL", "생성 LLM")
 FABRIX_ENDPOINT = os.getenv("FABRIX_ENDPOINT", "http://localhost:11434/v1/chat/completions")
 FABRIX_API_KEY = os.getenv("FABRIX_API_KEY", "ollama")   # Ollama는 아무 값이나 허용
 FABRIX_MODEL = os.getenv("FABRIX_MODEL", "exaone3.5:7.8b")
