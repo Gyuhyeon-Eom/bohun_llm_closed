@@ -1018,7 +1018,7 @@ function retryChat(i){
 
 
 /* ── T/F 피드백 — 전용 페이지(/feedback.html)로 이동 (구 우측 드로어 대체) ── */
-function fbBtnHtml(){ return `${icon('IconMessageSquare',14)} 피드백`; }
+function fbBtnHtml(){ return `${icon('IconMessageSquare',14)} 게시판`; }
 function initFbButtons(){ ['fb-btn-status','fb-btn-work'].forEach(id=>{ const b=$(id); if(b) b.innerHTML=fbBtnHtml(); }); }
 function openFeedback(){ window.open('/feedback.html', '_blank'); }
 initFbButtons();

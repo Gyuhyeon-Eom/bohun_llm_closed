@@ -9,7 +9,7 @@ from functools import lru_cache
 
 PROFILE_PATH = Path(__file__).parent.parent / "data" / "manuals" / "subcommittee_profiles.json"
 MANUAL_DOCTYPE = {"1": "매뉴얼:1권", "2": "매뉴얼:2권", "5": "매뉴얼:2권",
-                  "3": "매뉴얼:3권", "4": "매뉴얼:3권"}
+                  "3": "매뉴얼:3권", "4": "매뉴얼:3권", "6": "매뉴얼:2권"}  # 6=족부·건(정형외과 계열, 2권 준용)
 
 
 @lru_cache

@@ -50,7 +50,8 @@ def build_doc(app_id: int, emb) -> dict | None:
     app = load_case(app_id)
     if not app:
         return None
-    sub = profiles()[app["subcommittee"]]
+    # 미등록 분과번호여도 화면이 죽지 않도록 1분과(법률적 사실관계)로 폴백
+    sub = profiles().get(app["subcommittee"]) or profiles()["1"]
     yeu, bosang = clauses_for(app["duty_type"], app["is_death"])
 
     # 3.가 관련법령: 적용 조문 원문 발췌 (RAG)
@@ -66,7 +67,7 @@ def build_doc(app_id: int, emb) -> dict | None:
         # 3.다 의학정보 + 분과모듈 판단기준 (RAG, 분과 매뉴얼 우선)
         q = f"{d['name']} 판단기준 심사 포인트"
         hits = hybrid_search(q, emb.encode([q])[0], top_k=4,
-                             doc_type=MANUAL_DOCTYPE[app["subcommittee"]])
+                             doc_type=MANUAL_DOCTYPE.get(app["subcommittee"]))  # 미등록 분과는 전체 검색
         # 무관 발췌 차단: 상병명·부위 토큰(2자+)이 하나도 안 겹치는 청크는 버린다
         # (통합 문서에 타 분과 내용 혼재 + 임베더 품질 편차 대비 어휘 검증)
         import re as _re
