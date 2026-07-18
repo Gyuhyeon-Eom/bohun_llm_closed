@@ -1,0 +1,36 @@
+"""청크+벡터 -> PostgreSQL 적재. 문서 sha256 기준 멱등."""
+import hashlib
+import psycopg
+from config.settings import PG_DSN
+from ingestion.types import Chunk
+
+
+def sha256_of(path: str) -> str:
+    """'경로#태그' 형태를 허용 - 같은 파일을 다른 doc_type으로 병행 적재할 때 사용."""
+    real, _, tag = path.partition("#")
+    h = hashlib.sha256(tag.encode())
+    with open(real, "rb") as f:
+        for part in iter(lambda: f.read(1 << 20), b""):
+            h.update(part)
+    return h.hexdigest()
+
+
+def index_document(path: str, doc_type: str, chunks: list[Chunk],
+                   vectors: list[list[float]], ocr_engine: str) -> int:
+    assert len(chunks) == len(vectors)
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        digest = sha256_of(path)
+        cur.execute("SELECT doc_id FROM documents WHERE sha256=%s", (digest,))
+        if cur.fetchone():
+            return 0  # 이미 적재됨 (멱등)
+        cur.execute(
+            "INSERT INTO documents(source_path, doc_type, sha256, ocr_engine)"
+            " VALUES (%s,%s,%s,%s) RETURNING doc_id",
+            (path, doc_type, digest, ocr_engine))
+        doc_id = cur.fetchone()[0]
+        for c, v in zip(chunks, vectors):
+            cur.execute(
+                "INSERT INTO chunks(doc_id, block_type, content, page_no, embedding)"
+                " VALUES (%s,%s,%s,%s,%s)",
+                (doc_id, c.block_type.value, c.content, c.page_no, v))
+        return len(chunks)

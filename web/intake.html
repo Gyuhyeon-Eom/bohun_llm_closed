@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>보훈심사 문서지능 — 프로토타입</title>
+<link rel="stylesheet" href="/css/intake.css">
+</head>
+<body>
+<header>
+  <h1>보훈심사 문서지능<small>OCR 접수 · 하이브리드 검색 프로토타입</small></h1>
+  <span class="env" id="env">LLM 미연결(모의) · 임베딩 bge-m3</span>
+</header>
+<main>
+  <section id="intake">
+    <h2>문서 접수</h2>
+    <textarea id="text" placeholder="OCR 산출 텍스트를 붙여넣으세요. (문단은 빈 줄로 구분)&#10;mockgen JSON({&quot;blocks&quot;:[...]})을 붙여넣으면 블록·신뢰도까지 그대로 접수됩니다."></textarea>
+    <div class="row">
+      <input type="file" id="file" accept=".txt,.json" style="font-size:13px">
+      <label class="opt"><input type="checkbox" id="lowq"> 저품질 OCR로 취급(전 블록 교정)</label>
+    </div>
+    <div class="row">
+      <button id="submit">접수·적재</button>
+      <button class="ghost" id="clear">입력 지우기</button>
+    </div>
+    <div id="ledger"><h2 style="margin-top:0;border:none">처리 대장</h2><div id="entries"></div></div>
+  </section>
+  <section id="chat">
+    <h2>질의 — 적재 문서 근거 검색</h2>
+    <div id="chatlog"><div class="empty">문서를 접수한 뒤 질문하면, 답변과 함께 근거 구절·출처가 표시됩니다.</div></div>
+    <form id="ask">
+      <input id="qbox" placeholder="예: 족지 굴곡변형 심의 결과는?" autocomplete="off">
+      <label class="opt"><input type="checkbox" id="onlyup" checked> 접수분만</label>
+      <button>질의</button>
+    </form>
+  </section>
+</main>
+<script src="/js/intake.js"></script>
+</body>
+</html>

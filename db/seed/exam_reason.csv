@@ -1,0 +1,28 @@
+exam_category_name,reason,in_use
+이의신청,법령 적용 착오,True
+상이원인사망심의,테스트,True
+일반,해당없음,True
+재신청,비해당,True
+신규,신규 신청,True
+재심의,조정권고,True
+재심의,행정소송패소,True
+추가,123,True
+재심의,행정심판인용,True
+재신청,재확인,True
+신규,권리부활,True
+일반,조정권고,True
+재심의,직권,True
+이의신청,중요한 증거자료 누락,True
+이의신청,새로운 증거 발견,True
+재심의,조정권고,True
+재심의,"직권,조정권고등",True
+일반,직권,True
+신규,기타,True
+재신청,기타,True
+재심의,시정권고,True
+신규,테스트,False
+재심의,부정신고,True
+신규,심사구분사유테스트,True
+재심의,기타,True
+신규,11,True
+재심의,재심의 테스트,True

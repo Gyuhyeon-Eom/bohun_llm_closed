@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>e보훈심사AI지원시스템 — 화면설계서 v0.5</title>
+<link rel="stylesheet" href="/css/index.css">
+</head>
+<body>
+
+<!-- 화면 A: 안건현황 — e통합보훈시스템 내 목록 (BNM-U00-0100) -->
+<div class="view on gnv" id="v-status">
+  <div class="gtop">
+    <a href="#"><img src="./img/bohun.png" /></a>
+    <div class="gmenu" id="snb-items"></div>
+    <a class="gext" href="#" onclick="enterWorkspaceList();return false;">e보훈심사AI지원시스템</a>
+  </div>
+  <div class="gtabstrip">
+    <div class="gt">공지사항 <span class="x">✕</span></div>
+    <div class="gt on">★ 안건현황 <span class="x">✕</span></div>
+  </div>
+  <div class="gbody">
+    <div class="gtree" id="gtree"></div>
+    <div class="gmain">
+      <div class="gmainhead">
+        <h1>★ 안건현황</h1>
+        <div class="gtools" id="gtools"></div>
+      </div>
+      <div class="gfilter">
+        <div class="gfgrid">
+          <div class="gfitem"><label>심의유형</label><input placeholder=""></div>
+          <div class="gfitem"><label>심의내용</label><input placeholder=""></div>
+          <div class="gfitem"><label>심사구분</label><input placeholder=""></div>
+          <div class="gfitem"><label>조회번호</label><input placeholder=""></div>
+          <div class="gfitem"><label>소속</label><input placeholder=""></div>
+          <div class="gfitem"><label>성명</label><input id="casesearch" placeholder="성명 또는 접수번호" oninput="renderCaseTable()"></div>
+          <div class="gfitem"><label>담당자</label><input placeholder=""></div>
+          <div class="gfitem"><label>분과</label><input placeholder=""></div>
+          <div class="gfitem"><label>신체부위</label><input placeholder=""></div>
+          <div class="gfitem"><label>작업상태</label><input placeholder=""></div>
+          <div class="gfitem"><label>전료과목</label><input placeholder=""></div>
+          <div class="gfitem range"><label>접수기간</label><input type="date" value="2026-06-13"><span>~</span><input type="date" value="2026-07-15"></div>
+          <div class="gfcheck"><input type="checkbox" checked disabled> 나의 안건현황 조회(기간 상관없음) 전체조회</div>
+        </div>
+        <div class="gfbtns"><button class="primary" onclick="renderCaseTable()">검색</button><button onclick="$('casesearch').value='';renderCaseTable()">초기화</button></div>
+      </div>
+      <div class="gactionbar" style="width: 100%; justify-content: end;">
+        <button class="primary" id="aiBtn" disabled onclick="enterCase(selId)">AI 심사</button>
+        <button disabled>회송</button>
+        <button disabled>요양/의료급여복지증정</button>
+        <button disabled>수정</button>
+        <button disabled>화면인쇄</button>
+        <button disabled>경과기록</button>
+        <button disabled>심의유형변경</button>
+        <button disabled>반송</button>
+        <button disabled>반송취소</button>
+        <button disabled>엑셀다운로드</button><button id="batchBtn" disabled onclick="doBatchDownload()">의결서 일괄 다운로드</button>
+      </div>
+      <div class="glisthead">● 안건 목록 [총 <span class="n" id="caseCount">0</span>건]</div>
+        <div class="samplenote">※ 아래 안건은 실제 사례가 아닌, 심사의결서 정형화 틀을 참고해 생성한 <b>시연용 표본 데이터</b>입니다 (개인정보 미포함 · 실사례 연계 시 의결서 원문 매핑 예정)</div>
+      <div id="listwrap"></div>
+      <div class="gpage" id="gpage"></div>
+    </div>
+  </div>
+  <div class="gfooter">
+    <span class="alert">[알림] 정상처리되었습니다.</span>
+    <div class="sp"></div>
+    <button disabled>로그인연장</button>
+    <button disabled>로그아웃</button>
+  </div>
+</div>
+
+<!-- 화면 A-1: 진입 전환 (BNM-U00-0101) -->
+<div class="view" id="v-entry">
+  <div class="t">e보훈심사AI지원시스템</div>
+  <div class="spin"></div>
+  <div class="s1" id="entry-msg">안건 정보를 불러오는 중</div>
+  <div class="s2">SSO 연계로 로그인 상태 유지 · 안건번호·분과 파라미터 자동 수신</div>
+</div>
+
+<!-- 워크스페이스: 요건심사(리포트형) / 판정 현황(표형) / AI 챗봇 -->
+<div class="view" id="v-work">
+  <div id="gnav">
+    <button class="back" onclick="goStatus()" title="안건현황으로" id="gnav-back"></button>
+    <img src="./img/bohun_check.jpg" style="width: 120px; height: 30px;">
+    <span class="brand">e보훈심사AI지원시스템</span>
+    <div class="tabs" id="gnav-tabs"></div>
+    <button class="btn outline sm" style="margin-left:auto" onclick="openFeedback()" id="fb-btn-work"></button>
+    <span class="case" id="gnav-case" style="margin-left:0"></span>
+  </div>
+  <div id="workbody"></div>
+  <div id="ckbar" style="display:none"></div>
+</div>
+
+<script src="/js/icons.js"></script>
+<script src="/js/index.js"></script>
+</body>
+</html>

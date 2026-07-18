@@ -1,0 +1,54 @@
+/* ============================================================
+   intake.css — 구 화면: OCR 접수·질의 스타일 (intake.html에서 분리)
+   ============================================================ */
+  :root{
+    --ink:#1d2e4e; --ink-soft:#44526e; --line:#c9cfda; --paper:#fdfdfc;
+    --panel:#f4f5f3; --accent:#8a1f2d; --ok:#1e6b45; --mono:'SF Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box; margin:0}
+  body{background:var(--paper); color:var(--ink);
+       font:15px/1.65 'Apple SD Gothic Neo','Pretendard','Malgun Gothic',sans-serif}
+  header{border-bottom:3px double var(--ink); padding:26px 36px 18px; display:flex;
+         justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px}
+  header h1{font-size:21px; font-weight:800; letter-spacing:.14em}
+  header h1 small{font-weight:400; letter-spacing:.05em; color:var(--ink-soft); font-size:13px; margin-left:12px}
+  header .env{font-family:var(--mono); font-size:12px; color:var(--ink-soft)}
+  main{display:grid; grid-template-columns:minmax(340px,44%) 1fr; gap:0; min-height:calc(100vh - 78px)}
+  @media(max-width:880px){ main{grid-template-columns:1fr} }
+  section{padding:26px 36px}
+  #intake{border-right:1px solid var(--line); background:var(--panel)}
+  h2{font-size:13px; font-weight:800; letter-spacing:.22em; color:var(--ink-soft); margin-bottom:14px}
+  textarea{width:100%; height:180px; padding:12px; border:1px solid var(--line); border-radius:2px;
+           background:#fff; font:13px/1.6 var(--mono); resize:vertical; color:var(--ink)}
+  textarea:focus,input:focus,button:focus{outline:2px solid var(--ink); outline-offset:1px}
+  .row{display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap}
+  label.opt{font-size:13px; color:var(--ink-soft); display:flex; gap:6px; align-items:center; cursor:pointer}
+  button{border:1px solid var(--ink); background:var(--ink); color:#fff; padding:9px 20px;
+         font:inherit; font-weight:700; letter-spacing:.08em; border-radius:2px; cursor:pointer}
+  button.ghost{background:transparent; color:var(--ink)}
+  button:disabled{opacity:.45; cursor:default}
+  /* 처리 대장: 접수→검증→청킹→임베딩→적재 결재선 */
+  #ledger{margin-top:26px; border-top:1px solid var(--ink); padding-top:6px}
+  #ledger .entry{border-bottom:1px dashed var(--line); padding:10px 2px; font-size:13px}
+  #ledger .entry .name{font-weight:700}
+  .steps{display:flex; gap:0; margin-top:8px; font-family:var(--mono); font-size:11px}
+  .steps span{flex:1; text-align:center; padding:4px 0; border:1px solid var(--line);
+              border-left:none; color:var(--ink-soft); background:#fff}
+  .steps span:first-child{border-left:1px solid var(--line)}
+  .steps span.done{background:var(--ink); color:#fff; border-color:var(--ink)}
+  .steps span.fail{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .stat{color:var(--ink-soft); font-family:var(--mono); font-size:12px; margin-top:6px}
+  .stat b{color:var(--ok)}
+  /* 질의 */
+  #chatlog{display:flex; flex-direction:column; gap:18px; margin-bottom:18px}
+  .q{font-weight:700}
+  .q::before{content:'문'; font-size:11px; border:1px solid var(--ink); padding:1px 6px; margin-right:8px}
+  .a{padding-left:2px}
+  .a::before{content:'답'; font-size:11px; background:var(--ink); color:#fff; padding:2px 6px; margin-right:8px}
+  .a .note{font-size:12px; color:var(--accent); margin-top:4px}
+  .src{margin-top:8px; border-left:3px solid var(--line); padding:6px 12px; font-size:13px; color:var(--ink-soft)}
+  .src .meta{font-family:var(--mono); font-size:11px; color:var(--ink); margin-bottom:2px}
+  .src .meta .score{color:var(--ok)}
+  #ask{display:flex; gap:10px; position:sticky; bottom:0; background:var(--paper); padding:14px 0}
+  #ask input{flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:2px; font:inherit}
+  .empty{color:var(--ink-soft); font-size:13px; border:1px dashed var(--line); padding:18px; text-align:center}

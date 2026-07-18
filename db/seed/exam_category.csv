@@ -1,0 +1,10 @@
+code,name,in_use
+0,신규,True
+2,재신청,True
+3,추가,True
+5,상이원인사망심의,True
+1,재심의,True
+4,이의신청,True
+7,일반,True
+8,재심의,True
+9,1,False

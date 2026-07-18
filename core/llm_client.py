@@ -1,0 +1,113 @@
+"""FabriX 생성 LLM 게이트웨이. 모든 생성 LLM 호출은 이 클래스를 거친다.
+
+TODO(확인): FabriX API 규격 미확정. FabrixClient._call()은 "OpenAI 호환
+  chat/completions"라는 가정으로 임의 작성 - 삼성 회신 후 이 메서드와
+  config/settings.py의 FABRIX_* 값만 수정하면 전체 기능에 반영된다.
+"""
+import time
+from pathlib import Path
+from config.settings import (FABRIX_ENDPOINT, FABRIX_API_KEY, FABRIX_MODEL,
+                             LLM_TIMEOUT_S, LLM_MAX_RETRIES, LLM_TEMPERATURE)
+
+PROMPT_DIR = Path(__file__).parent / "prompts"
+
+
+class LLMUnavailable(RuntimeError):
+    """생성 LLM에 도달할 수 없는 상태 - 사용자에게 보여줄 원인·해결 문구를 담는다."""
+
+
+class LLMClient:
+    """공통 골격: 프롬프트 렌더링 -> 재시도 -> 토큰 사용량 로깅."""
+
+    def generate(self, prompt_name: str, **vars) -> str:
+        prompt = (PROMPT_DIR / f"{prompt_name}.txt").read_text(encoding="utf-8").format(**vars)
+        last_err = None
+        for attempt in range(LLM_MAX_RETRIES + 1):
+            try:
+                return self._call(prompt)
+            except LLMUnavailable:          # 연결 불가·모델 미설치·시간초과 - 재시도 무의미, 즉시 전달
+                raise
+            except Exception as e:  # TODO(확인): 규격 확정 후 재시도 대상 예외 구체화
+                last_err = e
+                time.sleep(2 ** attempt)
+        raise RuntimeError(f"LLM 호출 실패({prompt_name}): {last_err}")
+
+    def _call(self, prompt: str) -> str:
+        raise NotImplementedError
+
+
+class FabrixClient(LLMClient):
+    def _call(self, prompt: str) -> str:
+        import requests
+        # TODO(확인): OpenAI 호환 가정. 실규격에 맞춰 URL·헤더·페이로드 수정
+        try:
+            resp = requests.post(
+                FABRIX_ENDPOINT,
+                headers={"Authorization": f"Bearer {FABRIX_API_KEY}"},
+                json={"model": FABRIX_MODEL, "temperature": LLM_TEMPERATURE,
+                      "messages": [{"role": "user", "content": prompt}]},
+                timeout=LLM_TIMEOUT_S)
+        except requests.exceptions.ConnectionError as e:
+            raise LLMUnavailable(
+                f"생성 LLM({FABRIX_ENDPOINT})에 연결할 수 없습니다 - "
+                f"Ollama 실행 여부(ollama serve)와 엔드포인트를 확인하세요.") from e
+        except requests.exceptions.Timeout as e:
+            raise LLMUnavailable(
+                f"생성 LLM 응답 시간 초과({LLM_TIMEOUT_S}초) - 로컬 모델 로딩·생성 지연입니다. "
+                f"잠시 후 재시도하거나 LLM_TIMEOUT_S를 늘리세요.") from e
+        if resp.status_code == 404:
+            raise LLMUnavailable(
+                f"모델 '{FABRIX_MODEL}'을 찾을 수 없습니다 - `ollama pull {FABRIX_MODEL}` 후 재시도하세요.")
+        resp.raise_for_status()
+        data = resp.json()
+        usage = data.get("usage", {})
+        # 토큰 과금 추적 - TODO(확인): 운영에서는 로그 테이블/APM으로 전환
+        print(f"[fabrix] tokens in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')}")
+        return data["choices"][0]["message"]["content"]
+
+
+def get_llm() -> "LLMClient":
+    """설정(LLM_BACKEND) 기반 클라이언트 선택. openai=Ollama 로컬/FabriX 공통 경로."""
+    from config.settings import LLM_BACKEND
+    return FabrixClient() if LLM_BACKEND == "openai" else MockLLM()
+
+
+class MockLLM(LLMClient):
+    """개발·테스트용. canned에 prompt_name별 응답을 주입할 수 있다."""
+
+    def __init__(self, canned: dict[str, str] | None = None):
+        self.canned = canned or {}
+        self._last_name = None
+
+    def generate(self, prompt_name: str, **vars) -> str:
+        self._last_name = prompt_name
+        return super().generate(prompt_name, **vars)
+
+    def _call(self, prompt: str) -> str:
+        return self.canned.get(self._last_name, f"[MOCK] {self._last_name} 응답 ({len(prompt)}자 수신)")
+
+
+class RuleCorrectLLM(LLMClient):
+    """프로토타입용 OCR 교정기 - verifier의 FabriX 자리에 꽂는 규칙 기반 대역.
+    운영에서는 FabrixClient가 이 역할을 하며, 여기선 "안전한" 규칙만 적용한다:
+    노이즈 제거·줄바꿈 병합은 무조건, 문자 역치환은 정상 단어를 훼손할 수 없는
+    경우(정상 표기에 거의 안 쓰이는 글자, 숫자 문맥의 O/l/B/S/ㅡ)만.
+    실측 교훈: 무차별 역치환('재'->'제' 등)은 멀쩡한 '재신청'까지 훼손해
+    적중률을 깎는다 - 문맥 교정(LLM)이 필요한 이유. FabriX 연결 후 비교 베이스라인으로 유지."""
+    _SAFE_REV = {"멍": "명", "힝": "항", "싱": "심", "둥": "등", "흔": "훈"}  # 정상 표기 희귀 글자만
+    _DIGIT_REV = {"O": "0", "l": "1", "B": "8", "S": "5", "ㅡ": "-"}
+    _NOISE = set("·¸'˙‚ˈ|")
+
+    def _call(self, prompt: str) -> str:
+        text = prompt.split("[OCR 텍스트]")[-1].strip()
+        text = "".join(c for c in text if c not in self._NOISE).replace("\n", " ")
+        chars = list(text)
+        for i, c in enumerate(chars):
+            if c in self._SAFE_REV:
+                chars[i] = self._SAFE_REV[c]
+            elif c in self._DIGIT_REV:
+                prev = chars[i-1] if i else ""
+                nxt = chars[i+1] if i+1 < len(chars) else ""
+                if prev.isdigit() or nxt.isdigit():   # 숫자 문맥에서만 (조문번호 복원)
+                    chars[i] = self._DIGIT_REV[c]
+        return " ".join("".join(chars).split())

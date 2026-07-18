@@ -1,0 +1,31 @@
+# 런타임/대용량 산출물 (리포에 넣지 않음)
+.venv/
+models/
+__pycache__/
+*.pyc
+*.pyo
+
+# 로그
+*.log
+stdout.log
+stderr.log
+caddy.stdout.log
+caddy.stderr.log
+
+# 백업본
+*.bak
+*.bak.*
+web/*.bak
+web/*.bak.*
+
+# IDE / OS
+.idea/
+.DS_Store
+
+# 로컬 비밀/환경 (혹시 생기면)
+.env
+.env.*
+
+# 반입 수집물 (USB로 이동 — 리포에 넣지 않음)
+transfer_out/
+*.bundle

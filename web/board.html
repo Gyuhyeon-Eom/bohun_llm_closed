@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>e보훈심사AI지원시스템 — 화면설계 피드백</title>
+<link rel="stylesheet" href="/css/board.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">e보훈심사 AI지원시스템<span class="sub">화면설계 피드백</span></span>
+  <span class="meta"><b id="onlineOrg">—</b> 담당자 공용 · 부서별 1회 답변</span>
+</div>
+
+<div class="wrap">
+  <div class="page-head"><h1>화면설계 피드백</h1><span class="v">board v0.1</span></div>
+  <div class="page-desc">실제 심사 실무에 비추어 <b>화면·항목·업무절차</b>가 어긋나는 지점을 남겨 주세요. 등록된 의견은 처리상태로 관리되고, 수행사의 <b>확인 필요사항</b>에는 부서별로 답변합니다.</div>
+  <div class="note">⚠ 목업 데모지만 <b>실제 저장</b>됩니다 — 작성자 정보는 상단 ① 에 입력하면 의견·답변에 자동 반영됩니다.</div>
+
+  <!-- ============ 의견 등록 폼 ============ -->
+  <form class="card" onsubmit="return submitOpinion(event)">
+    <!-- 1. 작성자 -->
+    <div class="sec">
+      <div class="sec-title"><span class="n">1</span><span class="req">작성자 정보</span></div>
+      <div class="row">
+        <div class="field"><label class="req">소속 기관</label>
+          <select id="org" onchange="syncDept()">
+            <option value="">선택</option>
+            <option>보훈심사위원회</option><option>국가보훈부</option><option>지방보훈청</option>
+          </select></div>
+        <div class="field"><label>부서</label><select id="dept"></select></div>
+        <div class="field"><label>분과</label>
+          <select id="bunkwa">
+            <option>해당 없음</option><option>제1분과</option><option>제2분과</option>
+            <option>제3분과</option><option>제4분과</option><option>제5분과</option>
+          </select></div>
+        <div class="field"><label class="req">성명 / 연락처</label>
+          <input type="text" id="writer" placeholder="예) 김민수(044-000-0000)" oninput="syncAuthor()"></div>
+      </div>
+    </div>
+    <!-- 2. 화면 위치 -->
+    <div class="sec">
+      <div class="sec-title"><span class="n">2</span><span class="req">의견 대상 화면</span></div>
+      <div class="row">
+        <div class="field"><label class="req">메뉴</label>
+          <select id="menu" onchange="syncScreen()">
+            <option>심사등록</option><option selected>요건심사</option><option>패스트 트랙</option>
+            <option>상이판정</option><option>AI 챗봇</option><option>문서 접수(OCR)</option><option>공통·기타</option>
+          </select></div>
+        <div class="field"><label class="req">세부 화면</label><select id="screen" onchange="syncArea()"></select></div>
+        <div class="field"><label class="req">세부 항목(영역)</label><select id="area"></select>
+          <span class="hint">특정 어려우면 '화면 전체·기타'</span></div>
+      </div>
+    </div>
+    <!-- 3. 의견 유형 -->
+    <div class="sec">
+      <div class="sec-title"><span class="n">3</span><span class="req">의견 유형</span> <span class="opt">— 하나 선택</span></div>
+      <div class="type-grid" id="typeGrid"></div>
+      <!-- 항목추가 제안 -->
+      <div class="item-proposal" id="itemProposal">
+        <div class="ip-head">＋ 항목 추가 제안 상세</div>
+        <div class="ip-sub">어느 목록의 어느 위치에, 어떤 항목을 추가할지 지정해 주세요.</div>
+        <div class="row">
+          <div class="field"><label class="req">대상 목록</label>
+            <select id="targetList" onchange="renderChecklist()">
+              <option value="docs" selected>매건별 자료 보완 요청 체크리스트 (신청서류)</option>
+              <option value="chk2">(공통) 검토서 체크리스트 (14항목)</option>
+              <option value="basic">안건 기본정보 항목</option>
+              <option value="etc">기타 (직접 입력)</option>
+            </select></div>
+          <div class="field"><label class="req">추가할 항목명</label>
+            <input type="text" id="newItem" value="공무원연금공단 공무상 요양 승인 자료" oninput="renderChecklist()"></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field" style="flex:1.4"><label>삽입 위치 <span class="hint">— 목록에서 클릭</span></label>
+            <div class="cl-preview"><div class="cl-head"><span id="clTitle"></span><span>클릭 = 이 항목 <b>뒤에</b></span></div>
+              <ul id="clItems"></ul></div></div>
+          <div class="field"><label>근거 <span class="hint">(지침·법령)</span></label>
+            <input type="text" id="propBasis" value="보훈심사실무 제2분과 p.45" style="margin-bottom:8px">
+            <label>사유</label>
+            <textarea id="propReason" style="min-height:92px" placeholder="이 항목이 필요한 실무 상황">공무원 신분 안건은 공단의 공무상 인정여부 확인이 체크리스트에 있으나, 근거 서류가 보완요청 목록에 없어 매번 수기 요청함.</textarea></div>
+        </div>
+      </div>
+    </div>
+    <!-- 4. 중요도 -->
+    <div class="sec">
+      <div class="sec-title"><span class="n">4</span><span class="req">반영 중요도</span></div>
+      <div class="seg" data-seg="imp">
+        <label data-v="h">높음 · 실무 사용 불가</label>
+        <label class="on" data-v="m">보통 · 반영되면 개선</label>
+        <label data-v="l">낮음 · 참고</label>
+      </div>
+    </div>
+    <!-- 5. 내용 -->
+    <div class="sec">
+      <div class="sec-title"><span class="n">5</span><span class="req">의견 내용</span></div>
+      <textarea id="content" placeholder="① 현재 화면: 지금 화면이 어떻게 되어 있는지&#10;② 실무 방식: 실제 업무에서는 어떻게 처리하는지&#10;③ 개선 방향: 어떻게 바뀌어야 하는지"></textarea>
+      <div style="margin-top:12px">
+        <div class="attach" onclick="document.getElementById('file').click()">
+          해당 화면 <b>스크린샷 첨부</b> — 클릭 또는 끌어오기 (PNG·JPG·PDF, 최대 10MB)
+          <input type="file" id="file" hidden multiple></div>
+      </div>
+    </div>
+    <div class="form-foot">
+      <span class="hint">* 표시는 필수. 제출 후 아래 목록에서 처리상태를 확인할 수 있습니다.</span>
+      <button type="submit" class="btn btn-primary">의견 제출</button>
+    </div>
+  </form>
+
+  <!-- ============ 등록된 의견 ============ -->
+  <div class="card list-card">
+    <div class="list-head">
+      <h2>등록된 의견</h2><span class="cnt" id="opCnt">불러오는 중</span>
+      <div class="filters" id="opFilters">
+        <button class="fchip on" data-f="all">전체</button>
+        <button class="fchip" data-f="item">항목 추가</button>
+        <button class="fchip" data-f="proc">업무절차</button>
+        <button class="fchip" data-f="ai">AI 산출물</button>
+      </div>
+    </div>
+    <div id="opTableWrap"><div class="empty">불러오는 중…</div></div>
+  </div>
+
+  <!-- ============ 확인 필요사항 (Q&A) ============ -->
+  <div class="card list-card">
+    <div class="list-head">
+      <h2>확인 필요사항 <span style="font-weight:500;font-size:12.5px;color:var(--muted)">— 해당 부서 답변 요청</span></h2>
+      <span class="cnt" id="qaCnt"></span>
+    </div>
+    <div class="qa-desc">수행사가 화면 구현 중 확인이 필요한 사항입니다. 소속 부서 입장에서 <b>필요 / 불필요 / 검토필요 / 협의필요</b> 중 선택하고 의견을 남겨 주세요. 부서별로 1회 답변하며 모두에게 공개됩니다.</div>
+    <div id="qaWrap"><div class="empty">불러오는 중…</div></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/board.js"></script>
+</body>
+</html>

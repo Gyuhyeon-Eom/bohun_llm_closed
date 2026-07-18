@@ -1,0 +1,7 @@
+psycopg[binary]
+FlagEmbedding      # bge-m3 (운영 임베딩)
+requests
+fastapi
+uvicorn
+openpyxl           # db/extract_seed.py (엑셀->시드)
+reportlab          # 심의의결서 PDF export (services/decision_doc.py)

@@ -1,0 +1,195 @@
+code,name,injury_related,in_use
+00160,예우법 13-2-2,False,True
+00161,보상법 12-2-2,False,True
+00001,"독립법 4조,5조",False,True
+00002,예우법 4-1-3,False,True
+00003,예우법 4-1-4,False,True
+00004,예우법 4-1-5,False,True
+00005,예우법 4-1-6,False,True
+00006,예우법 73의2-1,False,True
+00007,추가상이처,False,True
+00008,공무상병명 정정,False,True
+00009,예우법 4-1-9,False,True
+00010,구 예우법 4-1-10,False,True
+00011,예우법 4-1-11,False,True
+00012,구 예우법 4-1-13,False,True
+00013,예우법 73조,False,True
+00014,예우법 5조,False,True
+00015,예우법 12-3,False,True
+00016,예우법 75-3,False,False
+00017,예우법 79-2,False,False
+00018,"고엽제법 2-2,3",False,True
+00019,고엽제법 2-4,False,True
+00020,고엽제법 8-1,False,True
+00021,광주민주법 67-2,False,False
+00022,단체설립법 6-3,False,False
+00030,구 예우법 4-1-11,False,True
+00031,구 예우법 4-1-14,False,True
+00032,고엽제법 2-2,False,True
+00033,고엽제법 2-3,False,True
+00034,"고엽제법 4-1-4,6",False,False
+00035,"예우법 4-1-4,6",False,True
+00036,고엽제법 28-1,False,True
+00037,"특수법 64-1,2",False,False
+00038,대상구분 변경,False,True
+00039,"독립법 4조, 재외동포법 16조",False,True
+00040,독립법 5조,False,True
+00041,예우법 79-1,False,True
+00042,예우법 79-3,False,True
+00043,고엽제법 28-2,False,True
+00044,참전법 3-2,False,True
+00045,참전법 3-3,False,True
+00046,특임법 80-1,False,True
+00047,특임법 80-3,False,True
+00048,5·18 민주법 67-1,False,True
+00049,5·18 민주법 67-3,False,True
+00050,5·18 민주법 5조,False,True
+00051,특임법 4조,False,True
+00052,예우법 13-2-1,False,True
+00053,독립법 12-4,False,True
+00054,각하,False,True
+00055,"고엽제법 28-2, 참전법 3-3",False,True
+00056,"예우법 4-1-3,4",False,True
+00057,"예우법 4-1-5,73의2-1",False,True
+00058,"예우법 4-1-6,73의2-1",False,True
+00059,"예우법 4-1-13,73의2-1",False,True
+00060,"예우법 4-1-14,73의2-1",False,True
+00061,"예우법 79-3, 참전법 3-3",False,True
+00062,예우법 9-4,False,True
+00063,예우법 78조,False,True
+00064,"예우법 4-1-5,6",False,True
+00065,"예우법 4-1-4,73의2-1",False,True
+00066,"예우법 4-1-14,9조 3항, 76조",False,True
+00067,"예우법 73의 2-1,9조 3항, 76조",False,True
+00068,"예우법 4-1-14,9조 3항 1호, 76조",False,True
+00069,"예우법 4-1-14,9조 3항 2호, 76조",False,True
+00070,"예우법 9조 3항 1호, 76조",False,True
+00071,"예우법 9조 3항 2호, 76조(비)",False,True
+00072,"예우법 9조 3항 2호, 76조",False,True
+00073,"예우법 9조 3항, 76조",False,True
+00074,제군법 제25조 제2항,False,True
+00075,"예우법 제4조제1항제14호, 9조3항, 76조(비)",False,True
+00076,"예우법 제4조제1항제14호, 9조3항2호, 76조",False,True
+00077,"예우법 제73조의2제1항, 9조3항, 76조",False,True
+00078,"예우법 제73조의2제1항, 9조3항, 76조(비)",False,True
+00079,"예우법 제73조의2제1항, 9조3항1호, 76조",False,True
+00080,"예우법 제73조의2제1항, 9조3항2호, 76조",False,True
+00081,"예우법 제4조제1항제14호, 9조3항2호, 76조(비)",False,True
+00082,"예우법 제73조의2제1항, 9조3항2호, 76조(비)",False,True
+00083,"예우법 제9조제3항제1호,제2호,76조",False,True
+00084,"예우법 제9조제3항제1호,제2호,76조(비)",False,True
+00085,독립법 제12조 제2항,False,True
+00086,독립법 제12조 제4항 제1호,False,True
+00087,5.18민주법 제67조 제3항,False,True
+00088,특임법 79-1,False,True
+00089,예우법 4-1-13,False,True
+00090,"예우법 제4조 제1항 제3호, 제5호",False,True
+00101,보상자법2-1-1,False,True
+00102,보상자법2-1-2,False,True
+00103,보상자법2-1-3,False,True
+00104,보상자법2-1-4,False,True
+00105,특임법 1-4,False,False
+00106,"예우법 4-1-3,5",False,True
+00107,예우법 76조,False,True
+00108,"예우법 4-1-6,14",False,True
+00109,재외동포법 16조,False,True
+00110,예우법 4-1-8,False,True
+00111,예우법 4-1-7,False,True
+00112,보상법 2-1-1,False,True
+00113,보상법 2-1-2,False,True
+00114,보상법 2-1-3,False,True
+00115,보상법 2-1-4,False,True
+00116,"예우법 4-1-3(비), 보상법 2-1-1",False,True
+00117,"예우법 4-1-5(비), 보상법 2-1-1",False,True
+00118,"예우법 4-1-4(비), 보상법 2-1-2",False,True
+00119,"예우법 4-1-6(비), 보상법 2-1-2",False,True
+00120,"예우법 4-1-14(비), 보상법 2-1-3",False,True
+00121,"예우법 4-1-15(비), 보상법 2-1-4",False,True
+00122,"예우법 4-1-3(해당), 보상법 2-1-1",False,True
+00123,"예우법 4-1-5(해당), 보상법 2-1-1",False,True
+00124,"예우법 4-1-4(해당), 보상법 2-1-2",False,True
+00125,"예우법 4-1-6(해당), 보상법 2-1-2",False,True
+00126,"예우법 4-1-14(해당), 보상법 2-1-3",False,True
+00127,"예우법 4-1-15(해당), 보상법 2-1-4",False,True
+00128,예우법 4-1-12,False,True
+00129,예우법 4-1-14,False,True
+00130,예우법 4-1-15,False,True
+00131,"독립법 4조, 5조(비)",False,False
+00132,"독립법 4조, 재외동포법 16조(비)",False,False
+00133,독립법 4조,False,True
+00134,"독립법 4, 독립법 12-4-1",False,True
+00135,"구 예우법 4-1-13,14",False,True
+00136,"예우법 4-1-4,6(비), 보상법 2-1-2",False,True
+00137,구 예우법 12-3,False,True
+00138,추가상이처(보상),False,True
+00139,특임법 3-2,False,True
+00140,대상구분변경(보상),False,True
+00141,참전법 3조,False,True
+00142,보상법 3조,False,True
+00143,보상법 72-3,False,True
+00144,보상법 2-1-1,False,True
+00145,"예우법 4-1-3,14",False,True
+00146,"예우법 4-1-6, 9-3, 76",False,True
+00147,보상법 8-3,False,True
+00148,고엽제법 28-3,False,True
+00149,"고엽제법 28-3, 참전법 39-2",False,True
+00150,"예우법 79-3, 참전법 39-2",False,True
+00151,참전법 39-1,False,True
+00152,참전법 39-2,False,True
+00153,특임법 3-1,False,True
+00154,특임법 3-3,False,True
+00155,보상법 12-2-1,False,True
+00156,테스트입니다.,False,True
+00157,심의문안 명 테스트,False,True
+00158,11111,False,True
+00159,1,False,True
+00162,예우법 76-1,False,True
+00163,독립법 제36조,False,True
+00164,독립법 제36조,False,True
+00165,예우법 75-3,False,True
+00166,예우법 78-1,False,True
+00167,독립법 35-3,False,True
+00168,독립법 38-1,False,True
+00169,참전법 37-1,False,True
+00170,참전법 36-3,False,True
+00171,참전법 38-1,False,True
+00172,고엽제법 26-1,False,True
+00173,고엽제법 25-3,False,True
+00174,고엽제법 27-1,False,True
+00175,보상법 69-1,False,True
+00176,보상법 68-3,False,True
+00177,보상법 71-1,False,True
+00178,5.18민주법 제65조 제1항,False,True
+00179,5.18민주법 제64조 제3항,False,True
+00180,5.18민주법 제66조 제1항,False,True
+00181,특임법 78-1,False,True
+00182,특임법 77-3,False,True
+00183,5.18 민주법 95-1,False,True
+00184,5.18 민주법 95-3,False,True
+00185,보상법 72-1,False,True
+00186,구 예우법 4-1-5,False,True
+00187,구 예우법 4-1-6,False,True
+00188,구 예우법 4-1-14,False,True
+00189,구 예우법 4-1-15,False,True
+00190,구 예우법 4-1-8,False,True
+00191,518민주,False,True
+00192,5.18 민주법 93-1,True,True
+00193,5.18 민주법 94-1,False,True
+00194,5.18 민주법 92-3,False,True
+00195,예우법,False,True
+00196,보상정지,False,True
+00197,예우법 75-4,False,True
+00198,고엽제법 25-4,False,True
+00199,독립법 39-3,False,True
+00200,5.18 민주법시행령 6-1-1,False,True
+00201,특임법시행령 6-2-2,False,True
+00202,독립법 35-4,False,True
+00203,예우법 75-4,False,True
+00204,참전법 36-4,False,True
+00205,5.18 민주법 92-4,False,True
+00206,특임범 77-4,False,True
+00207,보상법 68-4,False,True
+00208,참전법 9-5,False,True
+00209,구 예우법 73의2-1,False,True
+00210,예우법 6-5,False,True
+00211,참전법 39-3,False,True

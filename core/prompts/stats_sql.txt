@@ -1,0 +1,5 @@
+아래 자연어 질의를 SQL SELECT문 하나로 변환하십시오.
+허용된 뷰만 사용: {allowed_views}
+변환 불가하면 정확히 "UNSUPPORTED"만 출력하십시오.
+
+[질의] {question}
