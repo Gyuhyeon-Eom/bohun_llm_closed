@@ -33,6 +33,8 @@ class Question(BaseModel):
     question: str
     only_uploaded: bool = False   # True면 UI로 넣은 문서만 검색
     history: list[dict] = []      # [{"role":"user"|"ai","text":...}] 최근 대화 (챗봇용)
+    session_id: int | None = None # 챗봇 세션 — None이면 첫 질문 시 새 세션 자동 생성
+    persist: bool = True          # False면 기록 저장 안 함 (AI 검토 패널 질의 등 일회성)
 
 
 class IngestReq(BaseModel):
@@ -97,17 +99,34 @@ def api_ingest(req: IngestReq):
             "chunks": n, "seconds": round(time.time() - t0, 2)}
 
 
-@app.post("/chatbot")                 # 기능②
+@app.post("/chatbot")                 # 기능② (성공 왕복은 세션 기록으로 저장)
 def api_chatbot(q: Question):
     from core.llm_client import LLMUnavailable
     try:
-        return chatbot.answer(q.question, _llm, _emb,
-                              doc_type="ui_upload" if q.only_uploaded else None,
-                              history=q.history)
+        r = chatbot.answer(q.question, _llm, _emb,
+                           doc_type="ui_upload" if q.only_uploaded else None,
+                           history=q.history)
     except LLMUnavailable as e:
-        return {"answer": None, "error": str(e), "sources": []}
+        return {"answer": None, "error": str(e), "sources": [], "session_id": q.session_id}
     except RuntimeError as e:
-        return {"answer": None, "error": f"생성 실패: {e}", "sources": []}
+        return {"answer": None, "error": f"생성 실패: {e}", "sources": [], "session_id": q.session_id}
+    sid = q.session_id
+    if q.persist:
+        try:
+            sid = chatbot.save_exchange(q.session_id, q.question, r["answer"], r["sources"])
+        except Exception:
+            pass                       # 기록 실패는 답변 자체를 막지 않음 (DB 미가동 등)
+    return {**r, "session_id": sid}
+
+
+@app.get("/chat-sessions")            # 챗봇 과거기록: 세션 목록 (최근순)
+def api_chat_sessions():
+    return chatbot.list_sessions()
+
+
+@app.get("/chat-sessions/{cs_id}")    # 세션 대화 전체 (이어보기·이어하기)
+def api_chat_messages(cs_id: int):
+    return chatbot.get_messages(cs_id)
 
 
 @app.get("/llm-status")               # 챗봇·AI검토 화면의 연결 상태 표시용

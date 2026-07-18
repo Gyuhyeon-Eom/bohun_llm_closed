@@ -346,3 +346,14 @@ table.ds tbody tr{transition:background .15s}
 .ckit{display:flex;align-items:flex-start;gap:8px;line-height:20px}
 .ckit .ckbox{margin-top:2px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ── 챗봇 세션 기록 + 근거 출처 (v0.6) ── */
+.cnew{margin:4px 12px 8px;border:1px solid var(--border-strong);background:var(--white);border-radius:var(--radius);padding:7px 0;font-size:13px;color:var(--fg);transition:background .15s}
+.cnew:hover{background:var(--surface-muted)}
+#v-chat .chist{white-space:normal;padding:8px 14px}
+#v-chat .chist .ct{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+#v-chat .chist .cmeta{font-size:11px;color:var(--slate-400);margin-top:2px}
+#v-chat .chist.on{background:var(--surface-muted)}
+#v-chat .chist.on .ct{font-weight:600}
+.src.click{cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+.src.click:hover{border-color:var(--slate-400);color:var(--fg);background:var(--slate-50)}

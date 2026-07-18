@@ -27,7 +27,7 @@ let visitedSecs = new Set(), ckState = [], ckCollapsed = false;
 let editLog = [];                 // 수정이력 패널 (세션 단위)
 let similarCache = null;          // 유사사례 패널 캐시
 let aiPanelLog = [];              // AI 검토 패널 질의응답
-let chatMsgs = [], chatHistory = [];
+let chatMsgs = [], chatSessions = [], chatSessionId = null;   // 대화는 세션 단위로 서버 저장
 let llmStatus = null;             // /llm-status 캐시 {ok, backend, model, detail}
 
 const CHAT_TIMEOUT_MS = 180000;   // 로컬 7~8B 모델 생성 대기 상한 (3분)
@@ -811,8 +811,8 @@ function aiPanelBody(){
     + (nConflict ? line(false, `과거 판정 중 비해당 ${nConflict}건 — 상충 여부 확인 필요`) : '')
     + aiPanelLog.map(m=>`<div class="pcard" style="cursor:default"><div class="pt">${esc(m.q)}</div>
         ${m.loading ? `<div class="pm"><span class="loading">생성 중</span></div>`
-          : `<div class="pm${m.err?' err':''}" style="white-space:pre-wrap;${m.err?'':'color:var(--slate-700)'}">${m.err?'⚠ ':''}${esc(m.a)}${
-              m.err?` <button class="backlink" style="margin:0 0 0 6px;text-decoration:underline" onclick="retryAiPanel(${aiPanelLog.indexOf(m)})">다시 검토</button>`:''}</div>`}</div>`).join('')
+          : `<div class="pm${m.err?' err':''}" style="white-space:pre-wrap;${m.err?'':'color:var(--slate-700)'}">${m.err?'⚠ ':''}${esc(stripMd(m.a))}${
+              m.err?` <button class="backlink" style="margin:0 0 0 6px;text-decoration:underline" onclick="retryAiPanel(${aiPanelLog.indexOf(m)})">다시 검토</button>`:''}</div>${srcChips(m.sources)}`}</div>`).join('')
     + (llmStatus && !llmStatus.ok ? `<div class="mutetxt" style="margin-top:10px">${llmChip()}</div>` : '')
     + `<div class="pinput"><input id="aipanel-q" placeholder="이 안건에 대해 질의 (예: 판정근거 재검토)"
         onkeydown="if(event.key==='Enter')askAiPanel()">
@@ -830,9 +830,9 @@ async function askAiPanel(preset){
   const ctx = `[안건 ${doc.recv_no} · ${doc.review_content} · ${doc.disabilities.map(d=>d.name+'('+d.kcd_code+')').join(', ')}] `;
   const hist = aiPanelLog.filter(m=>!m.loading && !m.err).slice(-3)
     .flatMap(m=>[{role:'user', text:m.q}, {role:'ai', text:m.a}]);
-  const r = await askLLM({question: ctx + q, history: hist});
+  const r = await askLLM({question: ctx + q, history: hist, persist: false});  // 안건 질의는 세션 기록 제외
   entry.loading = false;
-  if(r.error){ entry.a = r.error; entry.err = true; } else entry.a = r.answer;
+  if(r.error){ entry.a = r.error; entry.err = true; } else { entry.a = r.answer; entry.sources = r.sources; }
   renderPanel();
 }
 
@@ -954,15 +954,36 @@ function dlSplit(fmt){              // 상이처별 개별본 일괄 zip
   window.open(`/decision-doc/${selId}/export-split?fmt=${fmt}`, '_blank');
 }
 
-/* ── AI 챗봇 (BNM-U00-0109) — /chatbot 연동 ── */
+/* ── AI 챗봇 (BNM-U00-0109) — /chatbot 연동, 세션별 과거기록 (chat_session/chat_message) ── */
+function chistHtml(){
+  return `<div id="chist">${chatSessions.map(cs=>`
+    <div class="chist ${cs.cs_id===chatSessionId?'on':''}" onclick="openChatSession(${cs.cs_id})" title="${esc(cs.title)}">
+      <div class="ct">${esc(cs.title)}</div>
+      <div class="cmeta">${esc(cs.last_at)} · 문답 ${cs.n_q}건</div>
+    </div>`).join('') || '<div class="mutetxt" style="padding:8px 14px;font-size:12px">저장된 대화가 없습니다</div>'}</div>`;
+}
+async function loadChatSessions(){
+  try{ chatSessions = await (await fetch('/chat-sessions')).json(); }catch(e){ chatSessions = []; }
+  const el = $('chist'); if(el) el.outerHTML = chistHtml();
+}
+async function openChatSession(id){
+  let msgs;
+  try{ msgs = await (await fetch('/chat-sessions/' + id)).json(); }catch(e){ return; }
+  chatSessionId = id;
+  chatMsgs = msgs.map(m => ({role: m.role === 'user' ? 'user' : 'ai', text: m.content, sources: m.sources || []}));
+  renderChat($('workbody'));
+}
+function newChatSession(){ chatSessionId = null; chatMsgs = []; renderChat($('workbody')); }
+
 function renderChat(wb){
   wb.innerHTML = `<div id="v-chat">
     <div class="csnb">
       <div class="cico">
         <div>${icon('IconHome',16)} 홈</div><div>${icon('IconCompass',16)} 탐색</div><div>${icon('IconHistory',16)} 기록</div>
       </div>
-      <div class="ccap">오늘</div>
-      <div id="chist">${chatHistory.map(h=>`<div class="chist" onclick="sendChat(${JSON.stringify(h).replace(/"/g,'&quot;')})">${esc(h)}</div>`).join('')}</div>
+      <button class="cnew" onclick="newChatSession()">＋ 새 대화</button>
+      <div class="ccap">지난 대화</div>
+      ${chistHtml()}
     </div>
     <div class="cmain">
       <div id="cmsgs">${chatMsgs.length ? chatMsgs.map(renderMsg).join('')
@@ -974,6 +995,7 @@ function renderChat(wb){
     </div></div>`;
   const box = $('cmsgs'); box.scrollTop = box.scrollHeight;
   $('chat-q').focus();
+  loadChatSessions();
   loadLlmStatus().then(()=>{ const el=$('llmchip-slot'); if(el) el.innerHTML=llmChip(); });
 }
 function fmtAI(text){
@@ -984,30 +1006,68 @@ function fmtAI(text){
   t = t.replace(/^#{1,4}[ \t]+/gm, '');
   return t;
 }
+function stripMd(text){
+  /* 볼드 렌더링이 없는 영역(AI 검토 패널)용: 마크다운 기호를 그냥 제거 */
+  return String(text ?? '').replace(/\*\*([^*\n]+)\*\*/g, '$1').replace(/^#{1,4}[ \t]+/gm, '');
+}
+
+/* 근거 출처: 칩 클릭 -> 참고한 원문 발췌 모달 (문서명·페이지·해당 구절) */
+function srcLabel(sp){
+  // source_path 형태: '경로#파일명#업로드논스' 또는 '경로#태그' 또는 순수 경로
+  const parts = String(sp).split('#');
+  return parts.length > 1 ? parts[1] : parts[0].split(/[\\/]/).pop();
+}
+let SRC_REG = [];
+function srcChips(sources){
+  if(!sources || !sources.length) return '';
+  const seen = new Set(), chips = [];
+  for(const src of sources){
+    const sp = String(src.source_path || '');
+    const label = srcLabel(sp) + ' p.' + src.page_no;
+    if(seen.has(label)) continue;
+    seen.add(label);
+    const id = SRC_REG.push(src) - 1;
+    chips.push(`<span class="src click" onclick="showSrc(${id})" title="근거 원문 보기">${esc(label)}</span>`);
+    if(chips.length >= 5) break;
+  }
+  return `<div class="srcs">${chips.join('')}</div>`;
+}
+function showSrc(i){
+  const s = SRC_REG[i]; if(!s) return;
+  const sp = String(s.source_path || '');
+  const label = srcLabel(sp);
+  const ov = document.createElement('div');
+  ov.className = 'gmodal-ov';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="gmodal" style="width:640px">
+    <div class="mh"><span>${icon('IconPaperclip',16)} ${esc(label)} <span class="mutetxt" style="font-weight:400">p.${esc(s.page_no)}</span></span>
+      <button class="backlink" style="margin:0" onclick="this.closest('.gmodal-ov').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+    <div class="mcap">AI가 참고한 원문 발췌</div>
+    <p style="white-space:pre-wrap;max-height:52vh;overflow:auto">${esc(s.content || '(발췌 내용 없음)')}</p>
+    <div class="mutetxt" style="font-size:11px;word-break:break-all">출처: ${esc(sp)}</div></div>`;
+  document.body.appendChild(ov);
+}
+
 function renderMsg(m){
   if(m.role==='user') return `<div class="msg user"><div class="who">담당자</div><div class="body">${esc(m.text)}</div></div>`;
   if(m.loading) return `<div class="msg"><div class="who">AI</div><div class="body mutetxt"><span class="loading">답변 생성 중</span></div></div>`;
   const idx = chatMsgs.indexOf(m);
   return `<div class="msg"><div class="who">AI</div><div class="body${m.err?' err':''}">${m.err?icon('IconAlertTriangle',14,'color:var(--amber-600);margin-right:4px'):''}${m.err?esc(m.text):fmtAI(m.text)}${
           m.err&&m.retryQ?` <button class="backlink" style="margin:0 0 0 8px;text-decoration:underline" onclick="retryChat(${idx})">다시 시도</button>`:''}</div>
-    ${m.sources && m.sources.length ? `<div class="srcs">${[...new Set(m.sources.map(s=>{
-    const sp = String(s.source_path||'');
-    const label = sp.includes('#') ? sp.split('#').pop() : sp.split(/[\\/]/).pop();
-    return `${label} p.${s.page_no}`;
-  }))].slice(0,5).map(t=>`<span class="src">${esc(t)}</span>`).join('')}</div>`:''}</div>`;
+    ${srcChips(m.sources)}</div>`;
 }
 async function sendChat(preset){
   const inp = $('chat-q');
   const q = (preset || (inp && inp.value) || '').trim(); if(!q) return;
-  if(!chatHistory.includes(q)) chatHistory.unshift(q);
   const hist = chatMsgs.filter(m=>!m.loading).slice(-6)
     .map(m=>({role:m.role, text:m.text}));           // 최근 3왕복 문맥 전달
   chatMsgs.push({role:'user', text:q}, {role:'ai', loading:true, sources:[]});
   renderChat($('workbody'));
-  const r = await askLLM({question:q, history:hist});
+  const r = await askLLM({question:q, history:hist, session_id:chatSessionId});
   chatMsgs[chatMsgs.length-1] = r.error
     ? {role:'ai', text:r.error, err:true, retryQ:q, sources:r.sources}
     : {role:'ai', text:r.answer, sources:r.sources};
+  if(!r.error && r.session_id) chatSessionId = r.session_id;   // 첫 질문이면 새 세션 확보
   renderChat($('workbody'));
 }
 function retryChat(i){
