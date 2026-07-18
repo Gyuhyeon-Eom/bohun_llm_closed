@@ -29,6 +29,7 @@ web/*.bak.*
 # 실행 시 생성되는 데이터 (스크립트로 재생성)
 data/samples/
 data/uploads/
+data/originals/
 
 # 반입 수집물 (USB로 이동 — 리포에 넣지 않음)
 transfer_out/

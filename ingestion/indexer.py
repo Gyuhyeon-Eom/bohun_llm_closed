@@ -1,8 +1,20 @@
 """청크+벡터 -> PostgreSQL 적재. 문서 sha256 기준 멱등."""
 import hashlib
+from pathlib import Path
 import psycopg
 from config.settings import PG_DSN
 from ingestion.types import Chunk
+
+# 스캔 원본(PDF) 보관소: 코퍼스 JSON과 같은 이름(stem)의 PDF를 여기 두면
+# 적재 시 orig_path로 연결되어, 출처 클릭 시 스캔본의 해당 페이지가 열린다.
+# (내부 자료이므로 git에 넣지 않는다 — .gitignore 처리)
+ORIGINALS_DIR = Path(__file__).parent.parent / "data" / "originals"
+
+
+def original_for(stem: str, display: str | None = None) -> str | None:
+    """data/originals/<stem>.pdf 존재 시 orig_path 문자열('경로#표시명') 반환."""
+    p = ORIGINALS_DIR / f"{stem}.pdf"
+    return f"{p}#{display or p.name}" if p.is_file() else None
 
 
 def sha256_of(path: str) -> str:

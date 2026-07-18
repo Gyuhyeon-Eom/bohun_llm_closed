@@ -1019,18 +1019,21 @@ function srcLabel(sp){
 }
 let SRC_REG = [];
 function srcChips(sources){
+  // 출처는 한 줄에 하나씩(불릿 목록) — 항목별로 원문 보기·다운로드 독립 제공
   if(!sources || !sources.length) return '';
-  const seen = new Set(), chips = [];
+  const seen = new Set(), items = [];
   for(const src of sources){
     const sp = String(src.source_path || '');
     const label = srcLabel(sp) + ' p.' + src.page_no;
     if(seen.has(label)) continue;
     seen.add(label);
     const id = SRC_REG.push(src) - 1;
-    chips.push(`<span class="src click" onclick="showSrc(${id})" title="근거 원문 보기">${esc(label)}</span>`);
-    if(chips.length >= 5) break;
+    items.push(`<li><span class="dot" style="background:var(--slate-300);width:5px;height:5px"></span>
+      <a class="src click" onclick="showSrc(${id})" title="원문 보기">${esc(label)}</a>
+      ${src.doc_id ? `<a class="srcdl" href="/source-doc/${src.doc_id}/file?dl=1" title="원본 다운로드">${icon('IconDownload',12)} 다운로드</a>` : ''}</li>`);
+    if(items.length >= 8) break;
   }
-  return `<div class="srcs">${chips.join('')}</div>`;
+  return `<ul class="srclist">${items.join('')}</ul>`;
 }
 async function showSrc(i){
   const s = SRC_REG[i]; if(!s) return;

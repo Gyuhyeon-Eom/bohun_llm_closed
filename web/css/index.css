@@ -358,3 +358,8 @@ table.ds tbody tr{transition:background .15s}
 .src.click{cursor:pointer;transition:border-color .15s,color .15s,background .15s}
 .src.click:hover{border-color:var(--slate-400);color:var(--fg);background:var(--slate-50)}
 .src.click{color:var(--blue-600,#2563eb);border-color:#bfdbfe;text-decoration:underline;text-underline-offset:2px}
+.srclist{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
+.srclist li{display:flex;align-items:center;gap:7px;font-size:12px}
+.srclist .src{padding:1px 6px}
+.srcdl{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--muted-fg);text-decoration:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 7px;transition:border-color .15s,color .15s}
+.srcdl:hover{border-color:var(--slate-400);color:var(--fg)}

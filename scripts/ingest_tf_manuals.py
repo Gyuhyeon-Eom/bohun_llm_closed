@@ -15,7 +15,7 @@ import psycopg
 from config.settings import PG_DSN
 from ingestion.chunker import chunk_blocks
 from ingestion.embedder import get_embedder
-from ingestion.indexer import index_document
+from ingestion.indexer import index_document, original_for
 from ingestion.types import Block, BlockType
 
 
@@ -43,8 +43,9 @@ def main():
             continue
         chunks = chunk_blocks(text_to_blocks(f))
         vecs = emb.encode([c.content for c in chunks])
-        n = index_document(f"{f}#{dt}", dt, chunks, vecs, "tf-text")
-        print(f"  {f.name}: {n} 청크")
+        orig = original_for(f.stem)   # data/originals/<같은 이름>.pdf (스캔본)
+        n = index_document(f"{f}#{dt}", dt, chunks, vecs, "tf-text", orig_path=orig)
+        print(f"  {f.name}: {n} 청크" + (" (스캔 원본 연결됨)" if orig else ""))
     print("실무지침 적재 완료 - 챗봇·AI검토에서 근거로 검색됩니다")
 
 

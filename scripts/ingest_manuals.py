@@ -2,6 +2,7 @@
 
 의결서 생성 시 안건의 분과에 해당하는 매뉴얼만 우선 검색된다 (분과별 가중).
 실행: python3 scripts/ingest_manuals.py
+스캔 원본 연결: data/originals/manual_N.pdf 를 두고 실행하면 출처 클릭 시 스캔본이 열린다.
 """
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ from config.settings import PG_DSN
 from ingestion.ocr_adapter import JsonOCR
 from ingestion.chunker import chunk_blocks
 from ingestion.embedder import get_embedder
-from ingestion.indexer import index_document
+from ingestion.indexer import index_document, original_for
 
 SRC = Path(__file__).parent.parent / "data" / "manuals"
 
@@ -25,8 +26,10 @@ def main():
             conn.execute("DELETE FROM documents WHERE doc_type=%s", (dt,))
         chunks = chunk_blocks(ocr.extract(str(f)))
         vecs = emb.encode([c.content for c in chunks])
-        n = index_document(f"{f}#{dt}", dt, chunks, vecs, "manual-text")
-        print(f"  {dt}: {n} 청크")
+        # data/originals/manual_N.pdf (스캔본)가 있으면 원문으로 연결
+        orig = original_for(f.stem, f"보훈심사실무_{no}권.pdf")
+        n = index_document(f"{f}#{dt}", dt, chunks, vecs, "manual-text", orig_path=orig)
+        print(f"  {dt}: {n} 청크" + (" (스캔 원본 연결됨)" if orig else ""))
 
 
 if __name__ == "__main__":
