@@ -732,12 +732,7 @@ function sec4(){
           <div class="gen" id="gen${d.dis_id}" ${fixed?'':'contenteditable="true"'}>${esc(c.body_text)}</div>
           <p style="margin-top:8px;font-size:13px"><b>결론:</b> ${esc(c.final_text)}</p>
           ${fixed?'':`<button class="btn outline sm" style="margin-top:8px" onclick="finalize(${d.dis_id})">담당자 확정</button>
-          <span class="mutetxt"> 문안은 위 상자에서 직접 수정 후 확정하십시오 (HITL)</span>`}
-          <div style="margin-top:10px;display:flex;gap:6px;align-items:center">
-            <span class="mutetxt">이 상이처 개별본${fixed?'':' (초안)'}:</span>
-            <button class="btn outline sm" onclick="dlDis(${d.dis_id},'${esc(d.name)}','txt')">${icon('IconFileText',12)} TXT</button>
-            <button class="btn outline sm" onclick="dlDis(${d.dis_id},'${esc(d.name)}','pdf')">${icon('IconDownload',12)} PDF</button>
-          </div>`:''}</div>
+          <span class="mutetxt"> 문안은 위 상자에서 직접 수정 후 확정하십시오 (HITL)</span>`}`:''}</div>
       </div>`;
     }).join('') +
     (function(){
@@ -879,18 +874,31 @@ function renderCkBar(){
   if(tab!=='report'){ bar.style.display='none'; return; }
   bar.style.display = '';
   const done = ckState.filter(Boolean).length;
-  const unread = [0,1,2,3].filter(i=>!visitedSecs.has(i));
-  const checklistOk = items.length ? (done===items.length && !unread.length) : !unread.length;
-  // 판단내용(4장)이 모든 상이처에 대해 생성되어야 산출물 다운로드 가능
+  const unread = [0,1,2,3].filter(i=>!visitedSecs.has(i));   // 표시용 (게이트 아님)
+  // 다운로드 규칙: ① 분과 체크리스트 전부 체크 + ② 모든 상이처의 판단내용(4장) 생성 완료
+  const checklistOk = !items.length || done === items.length;
   const judged = (doc.disabilities||[]).length
     ? doc.disabilities.every(d=>d.conclusion && d.conclusion.body_text)
     : false;
   const all = checklistOk && judged;
+  const gateMsg = all ? '' : [checklistOk?null:`체크리스트 ${done}/${items.length}`,
+                              judged?null:'판단내용 미생성'].filter(Boolean).join(' · ');
+  const dlBtns = `
+      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':gateMsg}" onclick="doCopy()">${icon('IconCopy',13)} 복사</button>
+      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':gateMsg}" onclick="doDownloadTxt()">${icon('IconFileText',13)} TXT</button>
+      <button class="btn sm" ${all?'':'disabled'} title="${all?'':gateMsg}" onclick="doDownloadPdf()">${icon('IconDownload',13)} PDF</button>
+      ${(doc.disabilities||[]).length>1?`
+      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':gateMsg}" onclick="dlSplit('txt')">상이처별 TXT·ZIP</button>
+      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':gateMsg}" onclick="dlSplit('pdf')">상이처별 PDF·ZIP</button>`:''}`;
   bar.classList.toggle('collapsed', ckCollapsed);
   if(ckCollapsed){
     bar.innerHTML = `
-      <span class="cnt ${all?'ok':''}">${esc(doc.subcommittee_info.name)} 체크리스트 · ${done}/${items.length} 완료${unread.length?` · 미열람 ${unread.length}장`:''}</span>
-      <button class="backlink" style="margin:0" onclick="ckCollapsed=false;renderCkBar()" title="펼치기">${icon('IconChevronUp',16,'color:var(--slate-400)')}</button>`;
+      <span class="cnt-toggle" onclick="ckCollapsed=false;renderCkBar()" title="펼치기">
+        <span class="cnt ${all?'ok':''}">${esc(doc.subcommittee_info.name)} 체크리스트 · ${done}/${items.length} 완료</span>
+        ${icon('IconChevronUp',16,'color:var(--slate-400)')}</span>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+        ${all?'':`<span class="mutetxt" style="white-space:nowrap">${gateMsg} — 완료 후 다운로드 가능</span>`}${dlBtns}
+      </div>`;
     bar.onclick = (e)=>{ if(e.target===bar){ ckCollapsed=false; renderCkBar(); } };
     return;
   }
@@ -903,14 +911,7 @@ function renderCkBar(){
       <span class="ckit ${ckState[i]?'on':''}" title="${esc((it.subs||[]).join(' / '))}" onclick="toggleCk(${i})">
         <span class="ckbox">${ckState[i]?icon('IconCheck',11):''}</span>${esc(it.item)}</span>`).join('')}</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      ${!judged?`<span class="mutetxt" style="white-space:nowrap">판단내용 생성 후 산출물 다운로드 가능</span>`:''}
-      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':'4장 판단내용을 먼저 생성하세요'}" onclick="doCopy()">${icon('IconCopy',13)} 복사</button>
-      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':'4장 판단내용을 먼저 생성하세요'}" onclick="doDownloadTxt()">${icon('IconFileText',13)} TXT</button>
-      <button class="btn sm" ${all?'':'disabled'} title="${all?'':'4장 판단내용을 먼저 생성하세요'}" onclick="doDownloadPdf()">${icon('IconDownload',13)} PDF</button>
-      ${(doc.disabilities||[]).length>1?`
-      <span class="mutetxt" style="border-left:1px solid var(--border);padding-left:8px;white-space:nowrap">상이처별 개별본 ZIP:</span>
-      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':'전 상이처 판단내용 생성 후 가능'}" onclick="dlSplit('txt')">TXT·ZIP</button>
-      <button class="btn outline sm" ${all?'':'disabled'} title="${all?'':'전 상이처 판단내용 생성 후 가능'}" onclick="dlSplit('pdf')">PDF·ZIP</button>`:''}
+      ${all?'':`<span class="mutetxt" style="white-space:nowrap">${gateMsg} — 완료 후 다운로드 가능</span>`}${dlBtns}
     </div>`;
 }
 function toggleCk(i){ ckState[i] = !ckState[i]; renderCkBar(); const el=$('cksum-slot'); if(el) el.innerHTML=ckSummary(); }
@@ -944,10 +945,6 @@ function doDownloadTxt(){
 function doDownloadPdf(){
   logEvent('담당자','심의의결서 PDF 다운로드');
   window.open(`/decision-doc/${selId}/export?fmt=pdf`, '_blank');
-}
-function dlDis(disId, name, fmt){   // 상이처 개별본 (해당 상이처 판단내용만 생성돼 있으면 가능)
-  logEvent('담당자', `상이처 개별 의결서 다운로드 — ${name} (${fmt.toUpperCase()})`);
-  window.open(`/decision-doc/${selId}/export?fmt=${fmt}&dis_id=${disId}`, '_blank');
 }
 function dlSplit(fmt){              // 상이처별 개별본 일괄 zip
   logEvent('담당자', `상이처별 의결서 ZIP 다운로드 (${fmt.toUpperCase()})`);
