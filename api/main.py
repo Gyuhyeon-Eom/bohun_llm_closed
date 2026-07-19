@@ -5,7 +5,7 @@ TODO(확인): 운영 전환 시 MockLLM -> FabrixClient, HashEmbedder -> bge로 
   (환경변수 EMBED_BACKEND=bge + 아래 _llm 한 줄)
 """
 import json as _json
-import tempfile, time
+import tempfile, threading, time
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -112,24 +112,42 @@ def api_ingest(req: IngestReq):
             "chunks": n, "orig": bool(orig_path), "seconds": round(time.time() - t0, 2)}
 
 
+# 동시 질의 현황 (개인 서버 시연용) — 로컬 LLM은 한 번에 한 건씩 생성하므로
+# 진행 중 질의 수 = 대기 줄 길이. 화면이 이 값으로 "N명 사용 중" 안내를 띄운다.
+_load_lock = threading.Lock()
+_active_chats = 0
+
+
+@app.get("/load")                     # 챗봇·AI검토 질의 동시 사용 현황
+def api_load():
+    return {"active": _active_chats}
+
+
 @app.post("/chatbot")                 # 기능② (성공 왕복은 세션 기록으로 저장)
 def api_chatbot(q: Question):
+    global _active_chats
     from core.llm_client import LLMUnavailable
+    with _load_lock:
+        _active_chats += 1
     try:
-        r = chatbot.answer(q.question, _llm, _emb,
-                           doc_type="ui_upload" if q.only_uploaded else None,
-                           history=q.history)
-    except LLMUnavailable as e:
-        return {"answer": None, "error": str(e), "sources": [], "session_id": q.session_id}
-    except RuntimeError as e:
-        return {"answer": None, "error": f"생성 실패: {e}", "sources": [], "session_id": q.session_id}
-    sid = q.session_id
-    if q.persist:
         try:
-            sid = chatbot.save_exchange(q.session_id, q.question, r["answer"], r["sources"])
-        except Exception:
-            pass                       # 기록 실패는 답변 자체를 막지 않음 (DB 미가동 등)
-    return {**r, "session_id": sid}
+            r = chatbot.answer(q.question, _llm, _emb,
+                               doc_type="ui_upload" if q.only_uploaded else None,
+                               history=q.history)
+        except LLMUnavailable as e:
+            return {"answer": None, "error": str(e), "sources": [], "session_id": q.session_id}
+        except RuntimeError as e:
+            return {"answer": None, "error": f"생성 실패: {e}", "sources": [], "session_id": q.session_id}
+        sid = q.session_id
+        if q.persist:
+            try:
+                sid = chatbot.save_exchange(q.session_id, q.question, r["answer"], r["sources"])
+            except Exception:
+                pass                   # 기록 실패는 답변 자체를 막지 않음 (DB 미가동 등)
+        return {**r, "session_id": sid}
+    finally:
+        with _load_lock:
+            _active_chats -= 1
 
 
 @app.get("/source-doc/{doc_id}")      # 근거 원문 미리보기 (텍스트는 마스킹 본문 포함)

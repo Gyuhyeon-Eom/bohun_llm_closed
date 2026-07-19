@@ -30,7 +30,24 @@ let aiPanelLog = [];              // AI 검토 패널 질의응답
 let chatMsgs = [], chatSessions = [], chatSessionId = null;   // 대화는 세션 단위로 서버 저장
 let llmStatus = null;             // /llm-status 캐시 {ok, backend, model, detail}
 
-const CHAT_TIMEOUT_MS = 180000;   // 로컬 7~8B 모델 생성 대기 상한 (3분)
+const CHAT_TIMEOUT_MS = 180000;
+
+/* ── 동시 사용 안내 (개인 서버 시연) — /load 폴링, 챗봇·AI검토 질의창에 표시 ── */
+let sysLoad = {active: 0};
+function loadHtml(id){
+  const n = (sysLoad && sysLoad.active) || 0;
+  const busy = n >= 2;
+  let dyn = '';
+  if(n === 1) dyn = ' · 현재 1명 질의 처리 중';
+  if(busy) dyn = ` · 현재 ${n}명 사용 중 — 순서대로 처리되니 잠시만 기다려주세요`;
+  return `<div id="${id}" class="loadline${busy?' busy':''}">${busy?icon('IconAlertTriangle',12,'color:var(--amber-600);margin-right:4px'):''}` +
+    `⚑ 개인 서버 시연 환경 — 로컬 LLM이라 응답 생성이 느릴 수 있습니다${dyn}</div>`;
+}
+async function pollLoad(){
+  try{ sysLoad = await (await fetch('/load')).json(); }catch(e){ /* 서버 무응답 시 기존 값 유지 */ }
+  ['loadchip','loadchip-panel'].forEach(id => { const el = $(id); if(el) el.outerHTML = loadHtml(id); });
+}
+setInterval(pollLoad, 6000);   // 화면 어디에 있든 6초마다 갱신 (안내줄이 있을 때만 반영)   // 로컬 7~8B 모델 생성 대기 상한 (3분)
 async function askLLM(payload){
   /* /chatbot 호출 -> {answer, sources, error}. 네트워크·타임아웃도 error 문구로 변환 */
   const ctl = new AbortController();
@@ -809,6 +826,7 @@ function aiPanelBody(){
           : `<div class="pm${m.err?' err':''}" style="white-space:pre-wrap;${m.err?'':'color:var(--slate-700)'}">${m.err?'⚠ ':''}${esc(stripMd(m.a))}${
               m.err?` <button class="backlink" style="margin:0 0 0 6px;text-decoration:underline" onclick="retryAiPanel(${aiPanelLog.indexOf(m)})">다시 검토</button>`:''}</div>${srcChips(m.sources)}`}</div>`).join('')
     + (llmStatus && !llmStatus.ok ? `<div class="mutetxt" style="margin-top:10px">${llmChip()}</div>` : '')
+    + loadHtml('loadchip-panel')
     + `<div class="pinput"><input id="aipanel-q" placeholder="이 안건에 대해 질의 (예: 판정근거 재검토)"
         onkeydown="if(event.key==='Enter')askAiPanel()">
         <button class="btn sm" style="padding:2px 8px" onclick="askAiPanel()">${icon('IconSend',13)}</button></div>`;
@@ -822,6 +840,7 @@ async function askAiPanel(preset){
   const inp = $('aipanel-q'); const q = (preset || (inp && inp.value) || '').trim(); if(!q) return;
   if(inp) inp.value = '';
   const entry = {q, a:'', loading:true}; aiPanelLog.push(entry); renderPanel();
+  setTimeout(pollLoad, 300);
   const ctx = `[안건 ${doc.recv_no} · ${doc.review_content} · ${doc.disabilities.map(d=>d.name+'('+d.kcd_code+')').join(', ')}] `;
   const hist = aiPanelLog.filter(m=>!m.loading && !m.err).slice(-3)
     .flatMap(m=>[{role:'user', text:m.q}, {role:'ai', text:m.a}]);
@@ -985,6 +1004,7 @@ function renderChat(wb){
     <div class="cmain">
       <div id="cmsgs">${chatMsgs.length ? chatMsgs.map(renderMsg).join('')
         : `<div id="cempty"><div class="g1">안녕하세요, 심사관님</div><div class="g2">무엇을 도와드릴까요?</div><div id="llmchip-slot">${llmChip()}</div></div>`}</div>
+      <div class="loadwrap">${loadHtml('loadchip')}</div>
       <div id="cform"><div class="wrap">
         <input id="chat-q" placeholder="심의 관련 질의를 입력하세요" onkeydown="if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229)sendChat()">
         <button onclick="sendChat()" title="전송">${icon('IconSend',16)}</button>
@@ -993,6 +1013,7 @@ function renderChat(wb){
   const box = $('cmsgs'); box.scrollTop = box.scrollHeight;
   $('chat-q').focus();
   loadChatSessions();
+  pollLoad();
   loadLlmStatus().then(()=>{ const el=$('llmchip-slot'); if(el) el.innerHTML=llmChip(); });
 }
 function fmtAI(text){
@@ -1113,6 +1134,7 @@ async function sendChat(preset){
     .map(m=>({role:m.role, text:m.text}));           // 최근 3왕복 문맥 전달
   chatMsgs.push({role:'user', text:q}, {role:'ai', loading:true, sources:[]});
   renderChat($('workbody'));
+  setTimeout(pollLoad, 300);   // 내 질의 포함 현황 갱신
   const r = await askLLM({question:q, history:hist, session_id:chatSessionId});
   chatMsgs[chatMsgs.length-1] = r.error
     ? {role:'ai', text:r.error, err:true, retryQ:q, sources:r.sources}
