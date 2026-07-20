@@ -939,11 +939,17 @@ def seed_grade_demo(cur, emb):
                 if inj2 == _inj:
                     continue
                 g2 = grnd.choice(grades2)
+                base2 = f"20{grnd.randint(11, 22)}.{grnd.randint(1, 12):02d}.{grnd.randint(1, 28):02d}."
                 items.append({"injury": inj2, "body_part": p2, "prev_grade": g2, "exam_dept": d2,
                               "exam_grade": g2 if "미달" not in g2 else "등급기준미달",
                               "opinion": f"{d2} 전문의 소견: '{inj2}'에 대하여 신체검사 및 영상검사 결과 "
                                          f"잔존 기능장애가 확인되며, {g2} 기준과의 부합 여부는 등급기준일 "
-                                         f"시점 측정치 대조 후 판정 필요."})
+                                         f"시점 측정치 대조 후 판정 필요.",
+                              "review_items": [f"직전심의({base2}): {g2}",
+                                               f"{d2} 최근 검사 결과지 확인 필요 - 추가 제출 자료 없음",
+                                               f"{g2} 기준 부합 여부 - 등급기준일 시점 측정치 대조 필요"],
+                              "note_items": [f"{d2} 영상·판독지 원본 열람 필요"],
+                              "related_docs": [f"{d2} 진단서", "직전심의 의결서", "재검 결과지"]})
         cur.execute("UPDATE grade_agenda SET resident_no=%s, target_type=%s, yeu_injury=%s,"
                     " direct_review=%s, exam_grade=%s, specialist_opinion=%s, route_note=%s,"
                     " measurements=%s, related_docs=%s, med_timeline=%s, prior_history=%s,"

@@ -566,10 +566,18 @@ function gradeInfoBody(g){
     ${g.prior_history?`<h4>이전 판정 · 재심의 경위</h4><div class="card" style="font-size:13px;color:var(--slate-700);line-height:22px">${esc(g.prior_history)}</div>`:''}
     ${g.past_history?`<h4>과거력 · 기왕증</h4><div style="font-size:13px;color:var(--slate-700);line-height:22px;margin-bottom:12px">${esc(g.past_history)}</div>`:''}
     ${g.route_note?`<h4>경로사항</h4><div class="card" style="font-size:13px;color:var(--slate-700);line-height:22px">${esc(g.route_note)}</div>`:''}
-    <h4>검토사항 <span class="mut">(AI가 원문에서 추출·정리한 실무 체크포인트)</span></h4>
-    ${(g.review_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--slate-700);margin-bottom:6px">○ ${esc(t)}</div>`).join('')}
+    <h4>검토사항 <span class="mut">(AI가 원문에서 추출·정리한 실무 체크포인트${items.length>1?' — 상이처별':''})</span></h4>
+    ${items.length>1
+      ? items.map((it,i)=>{const xs=i===0?(g.review_items||[]):(it.review_items||[]); return xs.length?`
+        <div style="font-size:13px;font-weight:700;color:var(--ink);margin:10px 0 4px">[${esc(it.injury)}]</div>
+        ${xs.map(t=>`<div style="font-size:13px;line-height:22px;color:var(--slate-700);margin-bottom:6px">○ ${esc(t)}</div>`).join('')}`:'';}).join('')
+      : (g.review_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--slate-700);margin-bottom:6px">○ ${esc(t)}</div>`).join('')}
     <h4>비고</h4>
-    ${(g.note_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--muted-fg);margin-bottom:6px">◇ ${esc(t)}</div>`).join('')}`;
+    ${items.length>1
+      ? items.map((it,i)=>{const xs=i===0?(g.note_items||[]):(it.note_items||[]); return xs.length?`
+        <div style="font-size:13px;font-weight:700;color:var(--ink);margin:10px 0 4px">[${esc(it.injury)}]</div>
+        ${xs.map(t=>`<div style="font-size:13px;line-height:22px;color:var(--muted-fg);margin-bottom:6px">◇ ${esc(t)}</div>`).join('')}`:'';}).join('')
+      : (g.note_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--muted-fg);margin-bottom:6px">◇ ${esc(t)}</div>`).join('')}`;
 }
 function gradePredictBody(g){
   const r = gv.pred;

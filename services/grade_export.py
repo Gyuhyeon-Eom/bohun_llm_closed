@@ -27,23 +27,24 @@ def _fetch(ga_id):
     return ags, logs_by
 
 
-# 심사표 컬럼 (좌 → 우) — 확정 양식 14컬럼 (260720, 직전등급·신검과목 분리).
+# 심사표 컬럼 (좌 → 우) — 확정 양식 14컬럼 (260720, 실물 양식 사진 대조).
 # scope: "ag"=안건(인적사항) 단위 — 상이처가 여러 개면 세로 병합 / "item"=상이처별 행.
-# 로직: 요건인정 상이처별로 직전등급→신검과목→신검등급→상이정도 및 소견→상이처별 제안등급을
-#       매기고, 그중 최고(중한) 등급으로 종합 제안등급을 산출한다.
+# 로직(한 플로우): 요건인정 상이처 → 직전등급 → 신검과목 → 신검등급 → 상이정도 및 소견
+#   → 관련자료 → 검토사항 → 비고 → 상이처별 제안등급이 전부 그 상이처의 행에 붙고,
+#   마지막에 상이처별 제안등급 중 최고(중한) 등급으로 종합 제안등급만 안건 단위 산출.
 COLUMNS = [
     ("신검종류", "apply_type", 11, "ag"),
     ("성명", "applicant", 9, "ag"),
     ("주민등록번호", "resident_no", 15, "ag"),
     ("대상구분", "target_type", 11, "ag"),
-    ("요건인정 상이처", "injury", 24, "item"),
+    ("요건인정 상이처", "injury", 20, "item"),
     ("직전등급", "prev_grade", 14, "item"),
     ("신검과목", "exam_dept", 11, "item"),
     ("신검등급", "exam_grade", 12, "item"),
-    ("상이정도 및 소견\n(보훈병원 전문의)", "__opinion__", 52, "item"),
-    ("관련자료", "related_docs", 22, "ag"),
-    ("검토사항", "review_items", 28, "ag"),
-    ("비고", "note_items", 22, "ag"),
+    ("상이정도 및 소견\n(보훈병원 전문의)", "__opinion__", 44, "item"),
+    ("관련자료", "related_docs", 20, "item"),
+    ("검토사항", "review_items", 40, "item"),
+    ("비고", "note_items", 20, "item"),
     ("상이처별 제안등급", "__grade_each__", 16, "item"),
     ("종합 제안등급", "__grade_total__", 14, "ag"),
 ]
@@ -69,6 +70,11 @@ def _items(ag):
                   "body_part": ag.get("body_part"), "prev_grade": _prev_grade(ag),
                   "exam_dept": ag.get("exam_dept"), "exam_grade": ag.get("exam_grade"),
                   "opinion": None}]
+    # 상이처별 검토사항·비고·관련자료 — 항목에 없으면 대표(첫) 상이처가 안건 값을 승계
+    for k, it in enumerate(items):
+        for key in ("review_items", "note_items", "related_docs"):
+            if it.get(key) is None and k == 0:
+                it[key] = ag.get(key)
     return items
 
 
@@ -188,25 +194,31 @@ def export_xlsx(ga_id=None, emb=None):
                  for it in items]
         total = _total_grade(preds)
         n = len(items)
+        def _bullets(it, key, mark, k):
+            """상이처별 목록 칸 — 복수 상이처면 실물 양식처럼 [상이처명] 태그 줄로 시작."""
+            xs = it.get(key) or []
+            if not xs:
+                return "—"
+            head = [f"[{it.get('injury')}]"] if (n > 1 and key == "review_items") else []
+            return "\n".join(head + [f"{mark} {x}" for x in xs])
+
         for k, it in enumerate(items):
-            row_txt = ""  # 행 높이 추정용 (해당 행 소견 텍스트)
+            row_txts = []  # 행 높이 추정용 (해당 행의 긴 텍스트 칸들)
             for ci, (label, key, _w, scope) in enumerate(COLUMNS, 1):
                 if scope == "ag":
-                    if key == "review_items" and ag.get(key):
-                        val = "\n".join(f"○ {x}" for x in ag[key])
-                    elif key == "note_items" and ag.get(key):
-                        val = "\n".join(f"◇ {x}" for x in ag[key])
-                    elif key == "related_docs" and ag.get(key):
-                        val = "\n".join(f"· {x}" for x in ag[key])
-                    elif key == "__grade_total__":
-                        val = total or "—"
-                    else:
-                        val = fmt(ag.get(key))
+                    val = (total or "—") if key == "__grade_total__" else fmt(ag.get(key))
                     if k > 0:
                         val = None  # 병합 범위 — 값은 첫 행에만
                 elif key == "__opinion__":
                     val = it.get("opinion") or (soken(ag) if k == 0 else "—")
-                    row_txt = val
+                    row_txts.append((val, 40))
+                elif key == "review_items":
+                    val = _bullets(it, key, "○", k)
+                    row_txts.append((val, 36))
+                elif key == "note_items":
+                    val = _bullets(it, key, "◇", k)
+                elif key == "related_docs":
+                    val = _bullets(it, key, "·", k)
                 elif key == "__grade_each__":
                     val = preds[k] or "— (AI 예측 미실행)"
                 else:
@@ -214,7 +226,8 @@ def export_xlsx(ga_id=None, emb=None):
                 c = ws.cell(ri + k, ci, val)
                 c.font = cf; c.border = border
                 c.alignment = wrap_l if key in LEFT_KEYS else wrap
-            wrapped = sum(max(1, len(seg) // 50 + 1) for seg in str(row_txt).split("\n"))
+            wrapped = max(sum(max(1, len(seg) // w + 1) for seg in str(t).split("\n"))
+                          for t, w in row_txts) if row_txts else 3
             ws.row_dimensions[ri + k].height = max(44, min(wrapped, 30) * 14)
         if n > 1:  # 안건 단위 칸 세로 병합 (인적사항·관련자료·검토사항·비고·종합 제안등급)
             for ci, (label, key, _w, scope) in enumerate(COLUMNS, 1):
