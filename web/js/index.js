@@ -411,11 +411,27 @@ async function renderTable(){
   }
   renderGaList();
 }
+let gaBatchSel = new Set();  // 심사표 일괄 다운로드 선택 (행 클릭의 상세 이동과 별개)
+function toggleGaBatch(gaId, on){
+  on ? gaBatchSel.add(gaId) : gaBatchSel.delete(gaId);
+  const b = $('gaBatchBtn'); if(!b) return;
+  b.disabled = !gaBatchSel.size;
+  b.innerHTML = `${icon('IconDownload',13)} 심사표 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}`;
+}
+async function gaBatchDownload(){
+  if(!gaBatchSel.size) return;
+  for(const gid of gaBatchSel){
+    const g = gradeAgendas.find(x=>x.ga_id===gid);
+    if(g) await logGradeEvent(gid, g.progress||'검토', '심사표 일괄 다운로드', '담당자', `XLSX 일괄 산출 (${gaBatchSel.size}건 zip)`, null);
+  }
+  window.open(`/grade-agendas/export-batch?ids=${[...gaBatchSel].join(',')}`, '_blank');
+}
 function renderGaList(){
   const q = ($('gaSearch')?.value || '').trim();
   const visible = gradeAgendas.filter(g => !q || String(g.applicant).includes(q) || String(g.agenda_no).includes(q));
   const rows = visible.map(g=>`
     <tr onclick="openGrade(${g.ga_id})">
+      <td style="width:26px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" ${gaBatchSel.has(g.ga_id)?'checked':''} onchange="toggleGaBatch(${g.ga_id}, this.checked)" title="일괄 다운로드 선택"></td>
       <td class="mono">${esc(g.agenda_no)}</td>
       <td class="ink">${esc(g.applicant)}</td>
       <td class="ink" style="text-decoration:underline">${esc(g.body_part)}</td>
@@ -424,10 +440,11 @@ function renderGaList(){
       <td>${esc(g.ai_summary)}</td>
       <td><span class="res ${G_ST[g.status]||''}">${esc(g.status)}</span></td></tr>`).join('');
   $('gaListWrap').innerHTML = `
-    <div class="glisthead">● 안건 목록 [총 <span class="n">${visible.length}</span>건]</div>
+    <div class="glisthead" style="display:flex;align-items:center;gap:10px">● 안건 목록 [총 <span class="n">${visible.length}</span>건]
+      <button id="gaBatchBtn" class="btn outline sm" style="margin-left:auto" ${gaBatchSel.size?'':'disabled'} onclick="gaBatchDownload()">${icon('IconDownload',13)} 심사표 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}</button></div>
     <div class="samplenote">※ 아래 안건은 실제 사례가 아닌, 심사의결서 정형화 틀을 참고해 생성한 <b>시연용 표본 데이터</b>입니다 (개인정보 미포함 · 실사례 연계 시 의결서 원문 매핑 예정)</div>
     <div class="tblcard"><table class="ds" style="min-width:760px"><thead><tr>
-      <th>안건번호</th><th>성명</th><th>신체부위</th><th>상이처</th><th>상이등급(기존→재심의)</th><th>AI 판정근거 요약</th><th>상태</th>
+      <th style="width:26px"></th><th>안건번호</th><th>성명</th><th>신체부위</th><th>상이처</th><th>상이등급(기존→재심의)</th><th>AI 판정근거 요약</th><th>상태</th>
     </tr></thead><tbody>${rows}</tbody></table>
     ${visible.length?'':`<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}${gradeAgendas.length?'조건에 맞는 안건이 없습니다.':'등록된 등급심사 안건이 없습니다 — 안건현황에서 시연용 안건을 생성하세요.'}</div>`}</div>`;
 }

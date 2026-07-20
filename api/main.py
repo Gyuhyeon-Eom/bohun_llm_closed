@@ -331,6 +331,21 @@ def api_grade_agendas():
         return cur.fetchall()
 
 
+@app.get("/grade-agendas/export-batch")  # 선택 안건 심사표 일괄 zip (ids=1,2,3) — {ga_id} 라우트보다 먼저 선언
+def api_grade_export_batch(ids: str):
+    try:
+        ga_ids = [int(x) for x in ids.split(",") if x.strip()]
+    except ValueError:
+        return {"error": "ids 형식 오류 — 예: ids=1,2,3"}
+    if not ga_ids:
+        return {"error": "선택된 안건이 없습니다"}
+    if len(ga_ids) > 50:
+        return {"error": "일괄 산출은 최대 50건입니다"}
+    from services import grade_export
+    fname, path = grade_export.export_batch(ga_ids, emb=_emb)
+    return FileResponse(path, filename=fname, media_type="application/zip")
+
+
 @app.get("/grade-agendas/{ga_id}")    # 안건 상세 (신검과목·검토사항·비고)
 def api_grade_agenda(ga_id: int):
     import psycopg

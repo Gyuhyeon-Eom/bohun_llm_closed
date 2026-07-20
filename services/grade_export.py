@@ -27,7 +27,7 @@ def _fetch(ga_id):
     return ags, logs_by
 
 
-# 심사표 컬럼 (좌 → 우) — 확정 양식 12컬럼 (260720).
+# 심사표 컬럼 (좌 → 우) — 확정 양식 13컬럼 (260720, 검토사항·비고 분리).
 # "상이정도 및 소견"(__soken__)은 측정치·소견을 한 칸에 여러 줄로 합침(핵심 넓은 칸).
 COLUMNS = [
     ("신검종류", "apply_type", 11),
@@ -39,7 +39,8 @@ COLUMNS = [
     ("신검등급", "exam_grade", 12),
     ("상이정도 및 소견\n(보훈병원 전문의)", "__soken__", 58),
     ("관련자료", "related_docs", 24),
-    ("검토사항\n비고", "__review__", 34),
+    ("검토사항", "review_items", 30),
+    ("비고", "note_items", 24),
     ("상이처별 제안등급", "__grade_each__", 24),
     ("종합 제안등급", "__grade_total__", 14),
 ]
@@ -156,10 +157,10 @@ def export_xlsx(ga_id=None, emb=None):
                 val = f"{_prev_grade(ag)}\n{ag.get('exam_dept') or '—'}"
             elif key == "__soken__":
                 val = soken(ag)
-            elif key == "__review__":
-                L = [f"○ {x}" for x in (ag.get("review_items") or [])]
-                L += [f"◇ {x}" for x in (ag.get("note_items") or [])]
-                val = "\n".join(L) or "—"
+            elif key == "review_items" and ag.get(key):
+                val = "\n".join(f"○ {x}" for x in ag[key])
+            elif key == "note_items" and ag.get(key):
+                val = "\n".join(f"◇ {x}" for x in ag[key])
             elif key == "__grade_each__":
                 val = f"· {injury_label}: {g1}" if g1 else "— (AI 예측 미실행)"
             elif key == "__grade_total__":
@@ -170,8 +171,8 @@ def export_xlsx(ga_id=None, emb=None):
                 val = fmt(ag.get(key))
             c = ws.cell(ri, ci, val)
             c.font = cf; c.border = border
-            c.alignment = wrap_l if key in ("__soken__", "__yeu__", "__review__",
-                "__grade_each__", "related_docs") else wrap
+            c.alignment = wrap_l if key in ("__soken__", "__yeu__", "review_items",
+                "note_items", "__grade_each__", "related_docs") else wrap
         # 소견 칸 줄 수에 맞춰 행 높이 (넓은 칸이 세로로 길어짐)
         soken_lines = soken(ag).count("\n") + 1
         # 셀 폭 68 기준 대략 줄바꿈 추정
@@ -247,4 +248,19 @@ def export_xlsx(ga_id=None, emb=None):
         fname = "상이등급심사표_전체.xlsx"
     path = os.path.join(tempfile.gettempdir(), fname)
     wb.save(path)
+    return fname, path
+
+
+def export_batch(ga_ids, emb=None):
+    """여러 안건의 심사표를 안건별 xlsx로 만들어 zip으로 일괄 산출.
+    (의결서 export_batch와 동일 패턴 — 안건별 부속 시트도 각 파일에 포함)"""
+    import zipfile
+    from datetime import date
+
+    fname = f"상이등급심사표_일괄_{len(ga_ids)}건_{date.today().strftime('%Y%m%d')}.zip"
+    path = os.path.join(tempfile.gettempdir(), fname)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for gid in ga_ids:
+            inner_name, inner_path = export_xlsx(gid, emb)
+            zf.write(inner_path, arcname=inner_name)
     return fname, path
