@@ -36,18 +36,23 @@ ollama pull exaone3.5:7.8b
 ² **PostgreSQL + 빌드도구 오프라인 패키지 수집** (서버 OS 확정 후 택1).
 ⚠ 반드시 **의존 패키지까지 전부** 받아야 한다 — 내부망에서는 부족분을 추가로 받을 방법이 없다:
 ```
-# Ubuntu 22.04/24.04 — 인터넷 되는 "동일 버전·깨끗한" 우분투(컨테이너 권장)에서
+# Ubuntu 24.04 — 인터넷 되는 "동일 버전·깨끗한" 우분투(컨테이너 권장)에서
+# ★ python3 계열 포함 — 서버에 파이썬이 아예 없어도 이 묶음으로 설치된다 (24.04의 python3 = 3.12)
 apt-get update
 apt-get install --download-only -o Dir::Cache::archives=$PWD/pgpkgs -y \
+    python3 python3-venv python3-pip \
     postgresql-16 postgresql-client-16 postgresql-server-dev-16 build-essential
 # → pgpkgs/*.deb 전체(의존성 포함)를 transfer_out/system/pgpkgs/ 로 복사
-#   내부망 설치: sudo dpkg -i transfer_out/system/pgpkgs/*.deb
+#   내부망 설치: sudo dpkg -i transfer_out/system/pgpkgs/*.deb   (dpkg는 OS 내장 — 파이썬 불필요)
 
 # RHEL 8/9 계열 (--resolve 가 의존성 포함)
 dnf download --resolve --alldeps --destdir ./pgpkgs \
+    python3.12 python3.12-pip \
     postgresql16-server postgresql16-devel gcc make redhat-rpm-config
-#   내부망 설치: sudo dnf install --disablerepo='*' ./pgpkgs/*.rpm
+#   내부망 설치: sudo dnf install --disablerepo='*' ./pgpkgs/*.rpm   (dnf/rpm은 OS 내장)
 ```
+⚠ 서버 OS의 python3 버전이 휠 수집 기준(PY_VER=3.12)과 일치해야 한다 — Ubuntu 22.04는
+기본이 3.10이므로, 22.04 서버라면 download_all.py의 PY_VER를 3.10으로 바꿔 휠을 재수집할 것.
 pgvector는 4-다 소스를 내부망에서 `make && sudo make install` (위 빌드도구·server-dev 필요).
 Python 3.12도 OS 패키지가 없으면 같은 방식으로 패키지 묶음을 수집(4-라 소스 빌드는 최후 수단 — libssl-dev 등 빌드 의존이 더 필요).
 
@@ -55,15 +60,21 @@ Python 3.12도 OS 패키지가 없으면 같은 방식으로 패키지 묶음을
 
 ## 반입 후 설치 순서
 
-### 리눅스 서버
-1. 레포 폴더를 서버에 복사
-2. `transfer_out/`을 레포 루트에 복사
-3. OS 패키지: Python 3.12 · PostgreSQL 16 + pgvector(소스 make) 설치, DB 계정 생성
-4. `python3 transfer/install_server.py` — 무결성 검증→휠→모델→폰트→DB시드→스모크까지 자동
+### 리눅스 서버 — "파이썬이 하나도 없는" 포맷 상태 기준
+
+**0단계(부트스트랩)는 파이썬 없이 OS 내장 도구만 쓴다** — .py 스크립트는 파이썬이 생긴 뒤의 이야기:
+
+1. 레포 폴더 + `transfer_out/`을 서버에 복사 (파일 복사 — 도구 불필요)
+2. **OS 패키지 설치 (파이썬 포함)**: `sudo dpkg -i transfer_out/system/pgpkgs/*.deb`
+   — dpkg(데비안)/rpm·dnf(레드햇)는 OS에 기본 내장이라 파이썬이 없어도 실행된다.
+   이 묶음에 python3·pip·venv·PostgreSQL·빌드도구가 전부 들어 있다 (위 ② 수집 명령 참고)
+3. `python3 --version`으로 파이썬 생겼는지 확인, pgvector 소스 `make && sudo make install`, DB 계정 생성
+4. **이제부터 .py 사용 가능**: `python3 transfer/install_server.py` — 무결성 검증→휠→모델→폰트→DB시드→스모크 자동
 5. `python3 start.py` → http://127.0.0.1:8000
 
 ### 윈도우 개발 PC
-→ [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
+→ [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) — 파이썬 없이 시작해도 됨:
+`system\python-3.12.8-amd64.exe` 더블클릭 설치가 0단계 (설치 프로그램은 파이썬 불필요)
 
 ## 내부망(폐쇄망)에서는 어떤 다운로드도 일어나지 않는다
 
