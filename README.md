@@ -18,7 +18,7 @@ python3 transfer/download_all.py  →  transfer_out/  →  서버: python3 trans
    휠(리눅스 서버용 + 윈도우 개발PC용, Python 3.12) · bge-m3 · Ollama+exaone · 폰트 · pgvector 소스가
    `transfer_out/`에 모이고 `MANIFEST.sha256`가 생성된다.
 2. **반입** — 레포 폴더 + `transfer_out/`을 USB로 이동 (기본 ~10GB, 32GB USB 권장). 전체 목록·수동 항목은
-   **[transfer/TRANSFER_LIST.md](transfer/TRANSFER_LIST.md)** 체크리스트 참조. 반입 후 `python3 transfer/verify_manifest.py`.
+   **[transfer/TRANSFER_LIST.md](transfer/TRANSFER_LIST.md)** 체크리스트 참조 (손으로 챙길 때의 다운로드 링크 목록은 [transfer/PACKING_LIST.md](transfer/PACKING_LIST.md)). 반입 후 `python3 transfer/verify_manifest.py`.
 3. **설치** — 서버는 `python3 transfer/install_server.py` (검증→휠→모델→DB시드→스모크 자동),
    윈도우 개발 PC는 [transfer/INSTALL_WINDOWS.md](transfer/INSTALL_WINDOWS.md). 기동은 `python3 start.py`.
 

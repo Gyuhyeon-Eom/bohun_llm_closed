@@ -1,5 +1,7 @@
 # TRANSFER_LIST — USB 반입 체크리스트
 
+> 자동 수집 대신 **손으로 하나씩 챙길 때의 다운로드 링크 목록**은 [PACKING_LIST.md](PACKING_LIST.md) 참고.
+
 폐쇄망 구축에 필요한 전체 반입물 목록. **1~5는 `python3 transfer/download_all.py` 한 번으로 자동 수집**되어
 `transfer_out/`에 모이고, 6~7은 수동 항목이다. 반입 후 `python3 transfer/verify_manifest.py`로 무결성 검증.
 
