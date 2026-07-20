@@ -926,6 +926,11 @@ def seed_grade_demo(cur, emb):
         rrn = f"{grnd.randint(60,99)}{grnd.randint(1,12):02d}{grnd.randint(1,28):02d}-*******"
         tgt = "공상군경" if "군경" in (a[3] or "") or grnd.random() < .6 else "재해부상군경"
         exam_g = _grade if "미달" not in _grade else "등급기준미달"
+        # 승급 시연: 직전등급 기준미달이던 안건 절반은 금번 신검에서 등급 판정 (실물 양식의 '승급' 사례)
+        if exam_g == "등급기준미달" and grnd.random() < .5:
+            _pool = [g for (p, d, injs, gs) in _TPL if p == _part for g in gs if "미달" not in g]
+            if _pool:
+                exam_g = grnd.choice(_pool)
         docs = [f"{_dept} 진단서", "영상판독지(MRI/X-ray/CT)", "신체검사 측정표",
                 "요건사실확인서", "기왕력(건강보험) 조회결과", "수술기록지", "재검 결과지"]
         # 상이처별 항목: 심사표 로직(상이처별 직전등급→신검과목→신검등급→소견→제안등급 → 종합) 반영.

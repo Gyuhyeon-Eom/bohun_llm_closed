@@ -93,8 +93,28 @@ def _predict_grade(injury, body_part, emb):
 def _severity(grade):
     """등급 문자열의 중증도 (숫자 작을수록 중함). 미달·불명은 99."""
     import re
-    m = re.search(r"(\d)\s*급", grade or "")
+    m = re.search(r"(\d)\s*급", grade or "") or re.match(r"\s*(\d)\s*-", grade or "")
     return int(m.group(1)) if m else 99
+
+
+def _proposed(it, pred):
+    """상이처별 제안등급 — 신검등급(신체검사 실측 판정) 기반. 실물 양식과 동일하게
+    신검등급을 제안값으로 쓰고, AI 별표3 대조 예측은 참고로만 병기한다
+    (예측이 상병명 텍스트만 대조하므로 실측과 동떨어진 등급이 나올 수 있음)."""
+    eg = (it.get("exam_grade") or "").strip()
+    if eg and eg != "—":
+        return eg
+    return pred  # 신검등급 미기재 시에만 AI 예측으로 대체
+
+
+def _updown(prev, proposed):
+    """직전등급 대비 승급/하향/유지 표기 (실물 양식의 비고 '승급' 표기 대응)."""
+    a, b = _severity(prev), _severity(proposed)
+    if b == 99:
+        return "등급기준미달" if a < 99 else None
+    if a == 99:
+        return "승급(기준미달→등급)"
+    return "승급" if b < a else ("하향" if b > a else "직전등급 유지")
 
 
 def _total_grade(preds):
@@ -192,7 +212,9 @@ def export_xlsx(ga_id=None, emb=None):
         items = _items(ag)
         preds = [_predict_grade(it.get("injury"), it.get("body_part") or ag.get("body_part"), emb)
                  for it in items]
-        total = _total_grade(preds)
+        props = [_proposed(it, preds[k]) for k, it in enumerate(items)]
+        total = _total_grade(props) or \
+            ("등급기준미달" if any("미달" in (p or "") for p in props) else None)
         n = len(items)
         def _bullets(it, key, mark, k):
             """상이처별 목록 칸 — 복수 상이처면 실물 양식처럼 [상이처명] 태그 줄로 시작."""
@@ -217,10 +239,15 @@ def export_xlsx(ga_id=None, emb=None):
                     row_txts.append((val, 36))
                 elif key == "note_items":
                     val = _bullets(it, key, "◇", k)
+                    ud = _updown(it.get("prev_grade"), props[k])
+                    if ud:  # 실물 양식의 비고 '승급' 표기 — 직전등급 대비 자동 판정
+                        val = f"[{ud}]" + ("" if val == "—" else f"\n{val}")
                 elif key == "related_docs":
                     val = _bullets(it, key, "·", k)
                 elif key == "__grade_each__":
-                    val = preds[k] or "— (AI 예측 미실행)"
+                    val = props[k] or "—"
+                    if preds[k] and _severity(preds[k]) != _severity(props[k]):
+                        val += f"\n(AI 참고: {preds[k]})"
                 else:
                     val = fmt(it.get(key))
                 c = ws.cell(ri + k, ci, val)
