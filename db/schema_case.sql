@@ -214,3 +214,8 @@ CREATE TABLE IF NOT EXISTS chat_message (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_chat_message_cs ON chat_message(cs_id, seq);
+
+-- ── 심사표 확정 양식(260720): 안건당 요건인정 상이처 복수 지원 ──
+-- 상이처별로 직전등급→신검과목→신검등급→소견→제안등급을 매기고 종합 제안등급을 산출하는 로직 반영.
+-- [{injury, prev_grade, exam_dept, exam_grade, opinion}] — 미설정 시 기존 단일 컬럼(yeu_injury 등)으로 대체.
+ALTER TABLE grade_agenda ADD COLUMN IF NOT EXISTS injury_items JSONB;

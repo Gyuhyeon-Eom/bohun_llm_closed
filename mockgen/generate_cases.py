@@ -928,16 +928,32 @@ def seed_grade_demo(cur, emb):
         exam_g = _grade if "미달" not in _grade else "등급기준미달"
         docs = [f"{_dept} 진단서", "영상판독지(MRI/X-ray/CT)", "신체검사 측정표",
                 "요건사실확인서", "기왕력(건강보험) 조회결과", "수술기록지", "재검 결과지"]
+        # 상이처별 항목: 심사표 로직(상이처별 직전등급→신검과목→신검등급→소견→제안등급 → 종합) 반영.
+        # 매 3번째 안건은 부상이처 1~2건 추가 — 복수 상이처 종합 산정 시연용.
+        items = [{"injury": _inj, "body_part": _part, "prev_grade": _grade, "exam_dept": _dept,
+                  "exam_grade": exam_g, "opinion": None}]  # 대표 상이처 소견은 안건 서사 사용
+        if i % 3 == 0:
+            for _ in range(grnd.randint(1, 2)):
+                p2, d2, injs2, grades2 = _TPL[grnd.randrange(len(_TPL))]
+                inj2 = grnd.choice(injs2)
+                if inj2 == _inj:
+                    continue
+                g2 = grnd.choice(grades2)
+                items.append({"injury": inj2, "body_part": p2, "prev_grade": g2, "exam_dept": d2,
+                              "exam_grade": g2 if "미달" not in g2 else "등급기준미달",
+                              "opinion": f"{d2} 전문의 소견: '{inj2}'에 대하여 신체검사 및 영상검사 결과 "
+                                         f"잔존 기능장애가 확인되며, {g2} 기준과의 부합 여부는 등급기준일 "
+                                         f"시점 측정치 대조 후 판정 필요."})
         cur.execute("UPDATE grade_agenda SET resident_no=%s, target_type=%s, yeu_injury=%s,"
                     " direct_review=%s, exam_grade=%s, specialist_opinion=%s, route_note=%s,"
                     " measurements=%s, related_docs=%s, med_timeline=%s, prior_history=%s,"
-                    " past_history=%s, onset_narrative=%s WHERE ga_id=%s",
+                    " past_history=%s, onset_narrative=%s, injury_items=%s WHERE ga_id=%s",
                     (rrn, tgt, _inj, "직접심의" if grnd.random() < .5 else "서면심의", exam_g,
                      narr["specialist_opinion"], narr["route_note"],
                      _json.dumps(meas, ensure_ascii=False), docs,
                      _json.dumps(narr["med_timeline"], ensure_ascii=False),
                      narr["prior_history"], narr["past_history"], narr["onset_narrative"],
-                     new_ga_id))
+                     _json.dumps(items, ensure_ascii=False), new_ga_id))
 
     # ── 작업로그(grade_log) 자동 시드: 각 안건 progress까지 DAG 이벤트 생성 ──
     cur.execute("TRUNCATE grade_log RESTART IDENTITY")

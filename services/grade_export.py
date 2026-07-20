@@ -27,22 +27,25 @@ def _fetch(ga_id):
     return ags, logs_by
 
 
-# 심사표 컬럼 (좌 → 우) — 확정 양식 13컬럼 (260720, 검토사항·비고 분리).
-# "상이정도 및 소견"(__soken__)은 측정치·소견을 한 칸에 여러 줄로 합침(핵심 넓은 칸).
+# 심사표 컬럼 (좌 → 우) — 확정 양식 14컬럼 (260720, 직전등급·신검과목 분리).
+# scope: "ag"=안건(인적사항) 단위 — 상이처가 여러 개면 세로 병합 / "item"=상이처별 행.
+# 로직: 요건인정 상이처별로 직전등급→신검과목→신검등급→상이정도 및 소견→상이처별 제안등급을
+#       매기고, 그중 최고(중한) 등급으로 종합 제안등급을 산출한다.
 COLUMNS = [
-    ("신검종류", "apply_type", 11),
-    ("성명", "applicant", 9),
-    ("주민등록번호", "resident_no", 15),
-    ("대상구분", "target_type", 11),
-    ("요건인정 상이처", "__yeu__", 22),
-    ("직전등급\n신검과목", "__prev__", 15),
-    ("신검등급", "exam_grade", 12),
-    ("상이정도 및 소견\n(보훈병원 전문의)", "__soken__", 58),
-    ("관련자료", "related_docs", 24),
-    ("검토사항", "review_items", 30),
-    ("비고", "note_items", 24),
-    ("상이처별 제안등급", "__grade_each__", 24),
-    ("종합 제안등급", "__grade_total__", 14),
+    ("신검종류", "apply_type", 11, "ag"),
+    ("성명", "applicant", 9, "ag"),
+    ("주민등록번호", "resident_no", 15, "ag"),
+    ("대상구분", "target_type", 11, "ag"),
+    ("요건인정 상이처", "injury", 24, "item"),
+    ("직전등급", "prev_grade", 14, "item"),
+    ("신검과목", "exam_dept", 11, "item"),
+    ("신검등급", "exam_grade", 12, "item"),
+    ("상이정도 및 소견\n(보훈병원 전문의)", "__opinion__", 52, "item"),
+    ("관련자료", "related_docs", 22, "ag"),
+    ("검토사항", "review_items", 28, "ag"),
+    ("비고", "note_items", 22, "ag"),
+    ("상이처별 제안등급", "__grade_each__", 16, "item"),
+    ("종합 제안등급", "__grade_total__", 14, "ag"),
 ]
 
 
@@ -52,17 +55,46 @@ def _prev_grade(ag):
     return gc.split("→")[0].strip() or "—"
 
 
-def _predict_grade(ag, emb):
+def _items(ag):
+    """상이처별 항목 리스트. injury_items(JSONB) 우선, 없으면 기존 단일 컬럼으로 1건 구성."""
+    import json
+    items = ag.get("injury_items")
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except Exception:
+            items = None
+    if not items:
+        items = [{"injury": ag.get("yeu_injury") or ag.get("injury"),
+                  "body_part": ag.get("body_part"), "prev_grade": _prev_grade(ag),
+                  "exam_dept": ag.get("exam_dept"), "exam_grade": ag.get("exam_grade"),
+                  "opinion": None}]
+    return items
+
+
+def _predict_grade(injury, body_part, emb):
     """상이처별 AI 제안등급 — grade_predict(별표3 대조)로 산출. 실패 시 None."""
-    if emb is None:
+    if emb is None or not injury:
         return None
     try:
         from services import grade_predict
-        r = grade_predict.predict(ag.get("yeu_injury") or ag.get("injury") or "",
-                                  ag.get("body_part"), emb, n=3)
+        r = grade_predict.predict(injury, body_part, emb, n=3)
         return r.get("grade1")
     except Exception:
         return None
+
+
+def _severity(grade):
+    """등급 문자열의 중증도 (숫자 작을수록 중함). 미달·불명은 99."""
+    import re
+    m = re.search(r"(\d)\s*급", grade or "")
+    return int(m.group(1)) if m else 99
+
+
+def _total_grade(preds):
+    """종합 제안등급 = 상이처별 제안등급 중 가장 중한(숫자 낮은) 등급."""
+    real = [p for p in preds if p and _severity(p) < 99]
+    return min(real, key=_severity) if real else None
 
 
 def export_xlsx(ga_id=None, emb=None):
@@ -100,7 +132,7 @@ def export_xlsx(ga_id=None, emb=None):
     ws.cell(2, 1).alignment = center
 
     hr = 4
-    for ci, (label, _, width) in enumerate(COLUMNS, 1):
+    for ci, (label, _, width, _s) in enumerate(COLUMNS, 1):
         c = ws.cell(hr, ci, label)
         c.font = hf; c.fill = hdr_fill; c.border = border
         c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
@@ -146,38 +178,49 @@ def export_xlsx(ga_id=None, emb=None):
             L.append(f"○ 경로사항: {ag['route_note']}")
         return "\n".join(L) or "—"
 
-    for ri, ag in enumerate(ags, hr + 1):
-        # AI 제안등급: 상이처별 = 별표3 대조 예측, 종합 = 상이처별 종합(현재 안건당 상이처 1건)
-        g1 = _predict_grade(ag, emb)
-        injury_label = ag.get("yeu_injury") or ag.get("injury") or "—"
-        for ci, (label, key, _) in enumerate(COLUMNS, 1):
-            if key == "__yeu__":
-                val = injury_label
-            elif key == "__prev__":
-                val = f"{_prev_grade(ag)}\n{ag.get('exam_dept') or '—'}"
-            elif key == "__soken__":
-                val = soken(ag)
-            elif key == "review_items" and ag.get(key):
-                val = "\n".join(f"○ {x}" for x in ag[key])
-            elif key == "note_items" and ag.get(key):
-                val = "\n".join(f"◇ {x}" for x in ag[key])
-            elif key == "__grade_each__":
-                val = f"· {injury_label}: {g1}" if g1 else "— (AI 예측 미실행)"
-            elif key == "__grade_total__":
-                val = g1 or "—"
-            elif key == "related_docs" and ag.get(key):
-                val = "\n".join(f"· {x}" for x in ag[key])
-            else:
-                val = fmt(ag.get(key))
-            c = ws.cell(ri, ci, val)
-            c.font = cf; c.border = border
-            c.alignment = wrap_l if key in ("__soken__", "__yeu__", "review_items",
-                "note_items", "__grade_each__", "related_docs") else wrap
-        # 소견 칸 줄 수에 맞춰 행 높이 (넓은 칸이 세로로 길어짐)
-        soken_lines = soken(ag).count("\n") + 1
-        # 셀 폭 68 기준 대략 줄바꿈 추정
-        wrapped = sum(max(1, len(seg) // 60 + 1) for seg in soken(ag).split("\n"))
-        ws.row_dimensions[ri].height = max(60, min(wrapped, 30) * 14)
+    LEFT_KEYS = ("__opinion__", "injury", "review_items", "note_items", "related_docs")
+    ri = hr + 1
+    for ag in ags:
+        # 상이처별 행: 상이처마다 직전등급→신검과목→신검등급→소견→제안등급을 매기고
+        # 그중 최고(중한) 등급을 종합 제안등급으로 산출. 인적사항·종합은 세로 병합.
+        items = _items(ag)
+        preds = [_predict_grade(it.get("injury"), it.get("body_part") or ag.get("body_part"), emb)
+                 for it in items]
+        total = _total_grade(preds)
+        n = len(items)
+        for k, it in enumerate(items):
+            row_txt = ""  # 행 높이 추정용 (해당 행 소견 텍스트)
+            for ci, (label, key, _w, scope) in enumerate(COLUMNS, 1):
+                if scope == "ag":
+                    if key == "review_items" and ag.get(key):
+                        val = "\n".join(f"○ {x}" for x in ag[key])
+                    elif key == "note_items" and ag.get(key):
+                        val = "\n".join(f"◇ {x}" for x in ag[key])
+                    elif key == "related_docs" and ag.get(key):
+                        val = "\n".join(f"· {x}" for x in ag[key])
+                    elif key == "__grade_total__":
+                        val = total or "—"
+                    else:
+                        val = fmt(ag.get(key))
+                    if k > 0:
+                        val = None  # 병합 범위 — 값은 첫 행에만
+                elif key == "__opinion__":
+                    val = it.get("opinion") or (soken(ag) if k == 0 else "—")
+                    row_txt = val
+                elif key == "__grade_each__":
+                    val = preds[k] or "— (AI 예측 미실행)"
+                else:
+                    val = fmt(it.get(key))
+                c = ws.cell(ri + k, ci, val)
+                c.font = cf; c.border = border
+                c.alignment = wrap_l if key in LEFT_KEYS else wrap
+            wrapped = sum(max(1, len(seg) // 50 + 1) for seg in str(row_txt).split("\n"))
+            ws.row_dimensions[ri + k].height = max(44, min(wrapped, 30) * 14)
+        if n > 1:  # 안건 단위 칸 세로 병합 (인적사항·관련자료·검토사항·비고·종합 제안등급)
+            for ci, (label, key, _w, scope) in enumerate(COLUMNS, 1):
+                if scope == "ag":
+                    ws.merge_cells(start_row=ri, start_column=ci, end_row=ri + n - 1, end_column=ci)
+        ri += n
 
     ws.freeze_panes = "A5"
 

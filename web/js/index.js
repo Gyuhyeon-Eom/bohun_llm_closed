@@ -529,6 +529,11 @@ async function logGradeEvent(gaId, step, event, actor, detail, fileName, advance
   }catch(e){}
 }
 function gradeInfoBody(g){
+  const items = Array.isArray(g.injury_items) ? g.injury_items
+              : (typeof g.injury_items==='string' ? (()=>{try{return JSON.parse(g.injury_items)}catch(e){return[]}})() : []);
+  const itemRows = items.length>1 ? items.map((it,i)=>`<tr>
+    <td class="mut">${i+1}</td><td class="ink">${esc(it.injury)}</td><td>${esc(it.body_part||'')}</td>
+    <td class="mono">${dash(it.prev_grade)}</td><td>${esc(it.exam_dept)}</td><td class="mono">${dash(it.exam_grade)}</td></tr>`).join('') : '';
   const meas = Array.isArray(g.measurements) ? g.measurements
              : (typeof g.measurements==='string' ? (()=>{try{return JSON.parse(g.measurements)}catch(e){return[]}})() : []);
   const tl = Array.isArray(g.med_timeline) ? g.med_timeline
@@ -546,6 +551,10 @@ function gradeInfoBody(g){
       <th>신체부위</th><th>상이처</th><th>기준일자</th><th>신검과목</th><th>신검등급</th><th>등급기준일</th><th>상이등급(기존→재심의)</th></tr></thead>
       <tbody><tr><td class="ink">${esc(g.body_part)}</td><td>${esc(g.injury)}</td><td class="mono">${esc(g.base_date)}</td>
         <td>${esc(g.exam_dept)}</td><td class="mono">${dash(g.exam_grade)}</td><td class="mono">${esc(g.grade_date)}</td><td style="white-space:normal">${esc(g.grade_change)}</td></tr></tbody></table></div>
+    ${itemRows?`<h4>요건인정 상이처별 현황 <span class="mut">(상이처별 직전등급·신검과목·신검등급 → 심사표에서 상이처별 제안등급·종합 제안등급 산출)</span></h4>
+    <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
+      <th style="width:30px">#</th><th>요건인정 상이처</th><th>신체부위</th><th>직전등급</th><th>신검과목</th><th>신검등급</th></tr></thead>
+      <tbody>${itemRows}</tbody></table></div>`:''}
     ${g.onset_narrative?`<h4>상이 발생경위</h4><div class="card soft" style="line-height:22px">${esc(g.onset_narrative)}</div>`:''}
     ${tlRows?`<h4>의무기록 <span class="mut">(진료 시간순)</span></h4>
     <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
