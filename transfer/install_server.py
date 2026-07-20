@@ -6,7 +6,7 @@
   - Python 3.12, PostgreSQL 16+ 는 OS 패키지로 선설치 (TRANSFER_LIST.md 4 참고)
 
 사용법 (레포 루트에서):  python3 transfer/install_server.py
-재실행 안전(멱등). root 권한이 필요한 단계(Ollama·폰트)는 sudo를 시도하고,
+재실행 안전(멱등). root 권한이 필요한 단계(폰트 설치)는 sudo를 시도하고,
 실패하면 수동 명령을 출력한다.
 
 ※ 폐쇄망 반입 규정상 .sh 파일 금지 — 설치 로직 전체를 이 .py 하나로 처리.
@@ -94,19 +94,14 @@ def place_models():
         print("  ⚠ 반입물에 모델 없음 — EMBED_BACKEND=hash 로만 동작")
 
 
-def install_ollama():
-    step("3/6 생성 LLM (Ollama + exaone)")
-    tgz = IN / "ollama" / "ollama-linux-amd64.tgz"
-    if tgz.exists() and not shutil.which("ollama"):
-        sudo_or_hint(["tar", "-C", "/usr", "-xzf", tgz], f"tar -C /usr -xzf {tgz}")
-    blobs = IN / "ollama" / "models"
-    if blobs.is_dir():
-        dst = Path.home() / ".ollama" / "models"
-        dst.parent.mkdir(exist_ok=True)
-        shutil.copytree(blobs, dst, dirs_exist_ok=True)
-        print("  exaone 블롭 배치 완료 — 'ollama serve' 기동 후 'ollama list'로 확인")
+def check_fabrix():
+    step("3/6 생성 LLM — 내부망 FabriX API (반입물 없음)")
+    ep = os.environ.get("FABRIX_ENDPOINT")
+    if ep:
+        print(f"  FABRIX_ENDPOINT={ep}")
     else:
-        print("  ⚠ 모델 블롭 없음 — mock 모드(LLM_BACKEND=mock)로 동작")
+        print("  ⚠ FABRIX_ENDPOINT 미설정 — 기동 전 환경변수 3개(FABRIX_ENDPOINT/API_KEY/MODEL)를")
+        print("    발급받은 FabriX 규격으로 설정하세요. 설정 전에는 챗봇에 'LLM 미연결' 안내가 뜹니다.")
 
 
 def install_font():
@@ -151,7 +146,7 @@ if __name__ == "__main__":
     verify_manifest()
     install_wheels()
     place_models()
-    install_ollama()
+    check_fabrix()
     install_font()
     init_db()
     smoke()

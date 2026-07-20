@@ -26,11 +26,11 @@ if (ROOT / "models" / "bge-m3").is_dir():
 else:
     env.setdefault("EMBED_BACKEND", "hash")
 
-# LLM: Ollama (OpenAI 호환 경로) — 미기동 시 화면에 미연결 안내가 뜬다
+# LLM: 내부망 FabriX API (OpenAI 호환) — 발급받은 규격을 환경변수로 설정
 env.setdefault("LLM_BACKEND", "openai")
-env.setdefault("FABRIX_ENDPOINT", "http://localhost:11434/v1/chat/completions")
-env.setdefault("FABRIX_API_KEY", "ollama")
-env.setdefault("FABRIX_MODEL", "exaone3.5:7.8b")
+if "FABRIX_ENDPOINT" not in env:
+    print("⚠ FABRIX_ENDPOINT 미설정 — FabriX 규격(FABRIX_ENDPOINT/API_KEY/MODEL)을 환경변수로")
+    print("  설정하세요. 설정 전에는 챗봇·AI검토에 'LLM 미연결' 안내가 표시됩니다.")
 
 venv_bin = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin")
 uvicorn = venv_bin / ("uvicorn.exe" if os.name == "nt" else "uvicorn")

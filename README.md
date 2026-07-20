@@ -15,7 +15,7 @@ python3 transfer/download_all.py  →  transfer_out/  →  서버: python3 trans
 > (download_all.py / install_server.py / verify_manifest.py / start.py)이며, USB에는 일반 파일·폴더만 담는다.
 
 1. **수집** — 인터넷 되는 PC에서 `python3 transfer/download_all.py`
-   휠(리눅스 서버용 + 윈도우 개발PC용, Python 3.12) · bge-m3 · Ollama+exaone · 폰트 · pgvector 소스가
+   휠(리눅스 서버용 + 윈도우 개발PC용, Python 3.12) · bge-m3 · 폰트 · pgvector 소스가
    `transfer_out/`에 모이고 `MANIFEST.sha256`가 생성된다.
 2. **반입** — 레포 폴더 + `transfer_out/`을 USB로 이동 (기본 ~10GB, 32GB USB 권장). 전체 목록·수동 항목은
    **[transfer/TRANSFER_LIST.md](transfer/TRANSFER_LIST.md)** 체크리스트 참조 (손으로 챙길 때의 다운로드 링크 목록은 [transfer/PACKING_LIST.md](transfer/PACKING_LIST.md)). 반입 후 `python3 transfer/verify_manifest.py`.
@@ -34,7 +34,7 @@ python3 transfer/download_all.py  →  transfer_out/  →  서버: python3 trans
 
 ## 앱 구성 (bohun_ai와 동일)
 
-FastAPI + PostgreSQL(pgvector) + bge-m3 임베딩 + 로컬 LLM(Ollama/FabriX, OpenAI 호환).
+FastAPI + PostgreSQL(pgvector) + bge-m3 임베딩 + 생성 LLM은 내부망 FabriX API(OpenAI 호환, 확정 — 모델 반입 없음).
 
 ```
 api/         FastAPI 진입점            services/    기능별 로직 (챗봇·의결서·등급예측 등)

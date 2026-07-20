@@ -14,7 +14,7 @@
 | 2-가 | `wheels/linux/` | download_all.py 자동 | Python 라이브러리 (torch CPU 포함) | 리눅스 서버 | ~1GB |
 | 2-나 | `wheels/windows/` | download_all.py 자동 | Python 라이브러리 | 윈도우 개발PC | ~1GB |
 | 3-가 | `models/bge-m3/` | download_all.py 자동 | 임베딩 모델 | 서버 | 2.3GB |
-| 3-나 | `ollama/` (본체 tgz·exe + exaone 블롭) | download_all.py 자동 (모델 블롭은 온라인 PC에 ollama 필요¹) | 생성 LLM | 서버·개발PC | ~5.5GB |
+| 3-나 | ~~생성 LLM~~ | **반입 없음 — 내부망 FabriX API 확정** (환경변수 3개로 연결) | 생성 LLM | — | 0 |
 | 4-가 | `system/python-3.12.8-amd64.exe` | download_all.py 자동 | Python 본체 | 윈도우 개발PC | 26MB |
 | 4-나 | **PostgreSQL 16+ 패키지** | 수동² — 서버 OS 확정 후 배포판 패키지 | DB | 서버 | ~60MB |
 | 4-다 | `system/pgvector-0.8.0.tar.gz` | download_all.py 자동 (소스 빌드: make) | 벡터 확장 | 서버 | 1MB |
@@ -23,17 +23,11 @@
 | 6 | IntelliJ IDEA CE 설치본 (win/linux) | `download_all.py --tools` | IDE | 개발PC | ~1GB×2 |
 | 7 | Git for Windows | 수동 — https://git-scm.com/download/win | 형상관리 | 윈도우 개발PC | 60MB |
 
-**총 용량: 기본 ~10GB / --tools 포함 ~12GB → 32GB USB 권장**
+**총 용량: 기본 ~4.5GB / --tools 포함 ~6.5GB → 16GB USB면 충분** (FabriX 확정으로 LLM 모델 5.5GB 제외)
 
 ---
 
-¹ **exaone 모델 블롭 수동 수집** (온라인 PC에 ollama 없을 때):
-```
-# 온라인 PC에서 (맥 기준)
-brew install ollama && brew services start ollama    # 또는 ollama.com 설치
-ollama pull exaone3.5:7.8b
-# ~/.ollama/models 디렉토리를 transfer_out/ollama/models 로 통째 복사
-```
+¹ (삭제) 생성 LLM은 FabriX API 확정 — 모델 반입 없음.
 
 ² **PostgreSQL + 빌드도구 오프라인 패키지 수집** (서버 OS 확정 후 택1).
 ⚠ 반드시 **의존 패키지까지 전부** 받아야 한다 — 내부망에서는 부족분을 추가로 받을 방법이 없다:
@@ -86,7 +80,7 @@ Python 3.12도 OS 패키지가 없으면 같은 방식으로 패키지 묶음을
 |---|---|---|
 | `verify_manifest.py` | MANIFEST.sha256 | 없음 (해시 계산만) |
 | `install_server.py` 휠 설치 | `wheels/linux/` (`pip --no-index --find-links`) | 없음 (PyPI 접속 차단됨) |
-| 모델·폰트·Ollama 배치 | `models/` `fonts/` `ollama/` 파일 복사 | 없음 |
+| 모델·폰트 배치 | `models/` `fonts/` 파일 복사 | 없음 |
 | DB 스키마·시드 | 레포 내 sql·py + 로컬 PostgreSQL | 없음 (localhost DB만) |
 | `start.py` 기동 | `.venv` + 로컬 모델 | 없음 — `HF_HUB_OFFLINE=1` `TRANSFORMERS_OFFLINE=1` 자동 설정으로 허브 접속 시도 자체를 차단 |
 

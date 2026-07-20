@@ -1,7 +1,7 @@
 """폐쇄망 반입물 일괄 수집 — 인터넷 되는 PC(맥/윈도우/리눅스)에서 실행.
 
 사용법 (레포 루트에서):
-    python3 transfer/download_all.py                # 필수: 휠(linux+windows)·모델·폰트·pgvector·Ollama
+    python3 transfer/download_all.py                # 필수: 휠(linux+windows)·bge-m3·폰트·pgvector
     python3 transfer/download_all.py --tools        # + IntelliJ 등 개발도구 설치본(용량 큼)
     python3 transfer/download_all.py --no-models    # 모델 제외 (휠·설치본만 빠르게)
     python3 transfer/download_all.py --wheels-only  # 휠만 재수집 (라이브러리 추가 반입 시)
@@ -97,18 +97,7 @@ def download_models():
     except Exception as e:
         print(f"  ⚠ 실패: {e}"); FAILS.append("bge-m3 snapshot_download")
 
-    step("Ollama 본체 + exaone3.5 모델")
-    fetch("https://ollama.com/download/ollama-linux-amd64.tgz", OUT / "ollama" / "ollama-linux-amd64.tgz")
-    fetch("https://ollama.com/download/OllamaSetup.exe", OUT / "ollama" / "OllamaSetup-windows.exe")
-    if shutil.which("ollama"):
-        # 모델 블롭은 pull 후 저장소 디렉토리를 통째로 복사하는 방식
-        if run(["ollama", "pull", "exaone3.5:7.8b"]):
-            src = Path.home() / ".ollama" / "models"
-            if src.is_dir():
-                shutil.copytree(src, OUT / "ollama" / "models", dirs_exist_ok=True)
-                print("  exaone 블롭 복사 완료")
-    else:
-        print("  ※ 이 PC에 ollama 없음 — exaone 블롭은 TRANSFER_LIST.md 3-나 수동 절차 참고")
+    # 생성 LLM은 내부망 FabriX API 확정 — Ollama·exaone 반입 없음 (환경변수 3개로 연결)
 
 
 def download_system():
@@ -150,7 +139,7 @@ def write_manifest():
 def main():
     ap = argparse.ArgumentParser(description="폐쇄망 반입물 일괄 수집")
     ap.add_argument("--tools", action="store_true", help="IntelliJ 등 개발도구 포함")
-    ap.add_argument("--no-models", action="store_true", help="모델(bge-m3·exaone) 제외")
+    ap.add_argument("--no-models", action="store_true", help="모델(bge-m3) 제외")
     ap.add_argument("--wheels-only", action="store_true", help="휠만 수집 (추가 반입용)")
     ap.add_argument("--requirements", default=str(ROOT / "requirements.txt"),
                     help="수집할 requirements 파일 (기본: 레포 requirements.txt)")
