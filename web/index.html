@@ -33,7 +33,7 @@
           <div class="gfitem"><label>심사구분</label><input placeholder=""></div>
           <div class="gfitem"><label>조회번호</label><input placeholder=""></div>
           <div class="gfitem"><label>소속</label><input placeholder=""></div>
-          <div class="gfitem"><label>성명</label><input id="casesearch" placeholder="성명 또는 접수번호" oninput="renderCaseTable()"></div>
+          <div class="gfitem"><label>성명</label><input id="casesearch" placeholder="성명 또는 접수번호" oninput="casePage=1;renderCaseTable()"></div>
           <div class="gfitem"><label>담당자</label><input placeholder=""></div>
           <div class="gfitem"><label>분과</label><input placeholder=""></div>
           <div class="gfitem"><label>신체부위</label><input placeholder=""></div>
@@ -42,7 +42,7 @@
           <div class="gfitem range"><label>접수기간</label><input type="date" value="2026-06-13"><span>~</span><input type="date" value="2026-07-15"></div>
           <div class="gfcheck"><input type="checkbox" checked disabled> 나의 안건현황 조회(기간 상관없음) 전체조회</div>
         </div>
-        <div class="gfbtns"><button class="primary" onclick="renderCaseTable()">검색</button><button onclick="$('casesearch').value='';renderCaseTable()">초기화</button></div>
+        <div class="gfbtns"><button class="primary" onclick="casePage=1;renderCaseTable()">검색</button><button onclick="$('casesearch').value='';casePage=1;renderCaseTable()">초기화</button></div>
       </div>
       <div class="gactionbar" style="width: 100%; justify-content: end;">
         <button class="primary" id="aiBtn" disabled onclick="enterCase(selId)">AI 심사</button>
@@ -92,6 +92,7 @@
   <div id="ckbar" style="display:none"></div>
 </div>
 
+<script src="/js/pagination.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/index.js"></script>
 </body>

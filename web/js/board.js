@@ -72,19 +72,22 @@ async function submitOpinion(e){ e.preventDefault(); if(!checkAuthor())return fa
 /* 목록 로드·렌더 */
 async function loadBoard(){
   try{ boardData=await (await fetch(API+'/board')).json(); }catch(e){ boardData=[]; }
-  renderOpinions(); renderQA();
+  opPage=1; qaPage=1; renderOpinions(); renderQA();
 }
+let opPage=1;
 function renderOpinions(){
   const ops=boardData.filter(x=>x.kind==='opinion');
   const cnt={done:ops.filter(o=>o.status==='반영완료').length,rev:ops.filter(o=>o.status==='검토중').length,con:ops.filter(o=>o.status==='협의요청').length};
   document.getElementById('opCnt').textContent=`전체 ${ops.length}건 · 반영완료 ${cnt.done} · 검토중 ${cnt.rev} · 협의요청 ${cnt.con}`;
   const list=opFilter==='all'?ops:ops.filter(o=>o.vtype===opFilter);
   const tlabel={proc:'업무절차',item:'항목 추가',func:'기능 추가',improve:'개선 제안',ai:'AI 산출물',term:'용어·표기',qna:'단순 질문'};
-  if(!list.length){ document.getElementById('opTableWrap').innerHTML='<div class="empty">해당하는 의견이 없습니다.</div>'; return; }
+  if(!list.length){ document.getElementById('opTableWrap').innerHTML='<div class="empty">해당하는 의견이 없습니다.</div>'; document.getElementById('opPager').innerHTML=''; return; }
+  const {slice, page, totalPages}=pageSlice(list, opPage, 10);
+  opPage=page;
   document.getElementById('opTableWrap').innerHTML=`<table><thead><tr>
     <th style="width:48px">No</th><th style="width:104px">유형</th><th>의견</th>
     <th style="width:150px">작성</th><th style="width:120px">처리상태</th><th style="width:78px">공감</th></tr></thead><tbody>${
-    list.map(o=>`<tr>
+    slice.map(o=>`<tr>
       <td>${o.fb_id}</td>
       <td><span class="tag ${o.vtype}">${tlabel[o.vtype]||'기타'}</span></td>
       <td>${esc(o.content||(o.proposal?`[항목추가] ${o.proposal.item}`:''))}
@@ -93,20 +96,26 @@ function renderOpinions(){
       <td><span class="st ${o.status}">${o.status}</span>${o.status_note?`<br><span class="hint">${esc(o.status_note)}</span>`:''}</td>
       <td><button class="like" onclick="like(${o.fb_id},this)">&#128077; ${o.likes||0}</button></td>
     </tr>`).join('')}</tbody></table>`;
+  renderPager('opPager', page, totalPages, 'gotoOpPage');
 }
+function gotoOpPage(p){ opPage=p; renderOpinions(); }
 async function like(id,btn){ try{ const j=await (await fetch(API+`/board/${id}/like`,{method:'POST'})).json();
   btn.classList.add('on'); btn.innerHTML='&#128077; '+j.likes; }catch(e){} }
 document.querySelectorAll('#opFilters .fchip').forEach(c=>c.onclick=()=>{
-  document.querySelectorAll('#opFilters .fchip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); opFilter=c.dataset.f; renderOpinions(); });
+  document.querySelectorAll('#opFilters .fchip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); opFilter=c.dataset.f; opPage=1; renderOpinions(); });
 
 /* Q&A 렌더 */
 const POS={need:['need','필요'],noneed:['noneed','불필요'],review:['review','검토필요'],consult:['consult','협의필요']};
+let qaPage=1;
 function renderQA(){
   const qas=boardData.filter(x=>x.kind==='qa');
   const answers=boardData.filter(x=>x.kind==='answer');
   document.getElementById('qaCnt').textContent=`전체 ${qas.length}건`;
-  if(!qas.length){ document.getElementById('qaWrap').innerHTML='<div class="empty">확인 필요사항이 없습니다.</div>'; return; }
-  document.getElementById('qaWrap').innerHTML=qas.map((q,idx)=>{
+  if(!qas.length){ document.getElementById('qaWrap').innerHTML='<div class="empty">확인 필요사항이 없습니다.</div>'; document.getElementById('qaPager').innerHTML=''; return; }
+  const {slice, page, totalPages}=pageSlice(qas, qaPage, 5);
+  qaPage=page;
+  document.getElementById('qaWrap').innerHTML=slice.map((q,i)=>{
+    const idx=(page-1)*5+i;
     const ans=answers.filter(a=>a.parent_id===q.fb_id);
     const cnt={};ans.forEach(a=>cnt[a.answer_pos]=(cnt[a.answer_pos]||0)+1);
     const stat=Object.entries(cnt).map(([p,n])=>`<span class="tag" style="${p==='need'?'background:#dcfce7;color:#15803d':p==='noneed'?'background:#fee2e2;color:#b91c1c':p==='review'?'background:#fef3c7;color:#b45309':'background:#f5f3ff;color:#7c3aed'}">${POS[p][1]} ${n}</span>`).join(' ');
@@ -137,7 +146,9 @@ function renderQA(){
   document.querySelectorAll('[data-qseg] label').forEach(lb=>lb.onclick=()=>{
     lb.parentElement.querySelectorAll('label').forEach(x=>x.classList.remove('on')); lb.classList.add('on'); });
   syncAuthor();
+  renderPager('qaPager', page, totalPages, 'gotoQaPage');
 }
+function gotoQaPage(p){ qaPage=p; renderQA(); }
 async function submitAnswer(qid){ if(!checkAuthor())return;
   const a=author(); const seg=document.querySelector(`[data-qseg="${qid}"] label.on`);
   const body={...a,answer_pos:seg?seg.dataset.v:'review',content:document.getElementById('qaAns'+qid).value.trim()};

@@ -216,8 +216,10 @@ async function submitOpinion(e){
 async function loadBoard(){
   try { boardData = await (await fetch(API + '/board')).json(); }
   catch(e){ boardData = []; }
+  opPage = 1; qaPage = 1;
   renderOpinions(); renderQA();
 }
+let opPage = 1;
 function renderOpinions(){
   const ops = boardData.filter(x => x.kind === 'opinion');
   const cnt = { done: ops.filter(o => o.status === '반영완료').length,
@@ -228,16 +230,18 @@ function renderOpinions(){
   if (opFilter === 'mine'){
     const me = $('writer').value.trim().replace(/\s*[\/(].*$/, '');
     list = me ? ops.filter(o => (o.writer || '').includes(me)) : [];
-    if (!me){ $('opTableWrap').innerHTML = '<div class="empty">상단 ① 작성자 정보에 성명을 입력하면 내 의견만 볼 수 있습니다.</div>'; return; }
+    if (!me){ $('opTableWrap').innerHTML = '<div class="empty">상단 ① 작성자 정보에 성명을 입력하면 내 의견만 볼 수 있습니다.</div>'; $('opPager').innerHTML = ''; return; }
   } else if (opFilter !== 'all'){
     list = ops.filter(o => o.vtype === opFilter);
   }
   const tlabel = { proc:'업무절차', item:'항목 추가', func:'기능 추가', improve:'개선 제안', ai:'AI 산출물', term:'용어·표기', qna:'단순 질문' };
-  if (!list.length){ $('opTableWrap').innerHTML = '<div class="empty">해당하는 의견이 없습니다.</div>'; return; }
+  if (!list.length){ $('opTableWrap').innerHTML = '<div class="empty">해당하는 의견이 없습니다.</div>'; $('opPager').innerHTML = ''; return; }
+  const {slice, page, totalPages} = pageSlice(list, opPage, 10);
+  opPage = page;
   $('opTableWrap').innerHTML = `<table><thead><tr>
     <th style="width:48px">No</th><th style="width:104px">유형</th><th>의견</th>
     <th style="width:170px">작성</th><th style="width:130px">처리상태</th><th style="width:80px">공감</th></tr></thead><tbody>${
-    list.map(o => `<tr>
+    slice.map(o => `<tr>
       <td>${o.fb_id}</td>
       <td><span class="tag ${esc(o.vtype)}">${tlabel[o.vtype] || '기타'}</span></td>
       <td>${esc(o.content || (o.proposal ? `[항목추가] ${o.proposal.item}` : ''))}
@@ -248,7 +252,9 @@ function renderOpinions(){
         o.status_note ? `<br><span class="hint">${esc(o.status_note)}</span>` : ''}</td>
       <td><button type="button" class="like" onclick="like(${o.fb_id}, this)">&#128077; ${o.likes || 0}</button></td>
     </tr>`).join('')}</tbody></table>`;
+  renderPager('opPager', page, totalPages, 'gotoOpPage');
 }
+function gotoOpPage(p){ opPage = p; renderOpinions(); }
 async function like(id, btn){
   try {
     const j = await (await fetch(API + `/board/${id}/like`, { method: 'POST' })).json();
@@ -257,14 +263,15 @@ async function like(id, btn){
 }
 document.querySelectorAll('#opFilters .chip').forEach(c => c.onclick = () => {
   document.querySelectorAll('#opFilters .chip').forEach(x => x.classList.remove('on'));
-  c.classList.add('on'); opFilter = c.dataset.f; renderOpinions();
+  c.classList.add('on'); opFilter = c.dataset.f; opPage = 1; renderOpinions();
 });
 
 /* ── 4. 확인 필요사항 (Q&A) ── */
 document.querySelectorAll('#qaFilters .chip').forEach(c => c.onclick = () => {
   document.querySelectorAll('#qaFilters .chip').forEach(x => x.classList.remove('on'));
-  c.classList.add('on'); qaFilter = c.dataset.f; renderQA();
+  c.classList.add('on'); qaFilter = c.dataset.f; qaPage = 1; renderQA();
 });
+let qaPage = 1;
 function renderQA(){
   const all = boardData.filter(x => x.kind === 'qa');
   const answers = boardData.filter(x => x.kind === 'answer');
@@ -275,8 +282,11 @@ function renderQA(){
     qas = all.filter(q => !q.target || q.target.includes('전체') || (bk !== '해당 없음' && q.target.includes(bk)));
   }
   $('qaCnt').textContent = `전체 ${all.length}건${qaFilter !== 'all' ? ` · 표시 ${qas.length}건` : ''}`;
-  if (!qas.length){ $('qaWrap').innerHTML = '<div class="empty">해당하는 확인 필요사항이 없습니다.</div>'; return; }
-  $('qaWrap').innerHTML = qas.map((q, idx) => {
+  if (!qas.length){ $('qaWrap').innerHTML = '<div class="empty">해당하는 확인 필요사항이 없습니다.</div>'; $('qaPager').innerHTML = ''; return; }
+  const {slice, page, totalPages} = pageSlice(qas, qaPage, 5);
+  qaPage = page;
+  $('qaWrap').innerHTML = slice.map((q, i) => {
+    const idx = (page - 1) * 5 + i;
     const ans = answers.filter(a => a.parent_id === q.fb_id);
     const cnt = {}; ans.forEach(a => cnt[a.answer_pos] = (cnt[a.answer_pos] || 0) + 1);
     const stat = Object.entries(cnt).map(([p, n]) =>
@@ -312,7 +322,9 @@ function renderQA(){
     lb.classList.add('on');
   });
   syncAuthor();
+  renderPager('qaPager', page, totalPages, 'gotoQaPage');
 }
+function gotoQaPage(p){ qaPage = p; renderQA(); }
 async function submitAnswer(qid){
   if (!checkAuthor()) return;
   const seg = document.querySelector(`[data-qseg="${qid}"] label.on`);

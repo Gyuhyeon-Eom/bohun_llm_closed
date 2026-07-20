@@ -112,6 +112,7 @@ $('gtree').innerHTML = `
 
 async function loadCases(){
   const w = $('listwrap');
+  casePage = 1;
   try{ cases = await (await fetch('/cases')).json(); }
   catch(e){
     w.innerHTML = `<div class="errcard">${icon('IconAlertTriangle',28,'color:var(--red-500)')}
@@ -151,15 +152,18 @@ function doBatchDownload(){
   logEvent('담당자', `심의의결서 일괄 다운로드 ${batchSel.size}건`);
   window.open(`/decision-doc/export-batch?ids=${[...batchSel].join(',')}`, '_blank');
 }
+let casePage = 1;
 function renderCaseTable(){
   const w = $('listwrap');
   const q = ($('casesearch')?.value || '').trim();
   const visible = cases.filter(c => !q || String(c.applicant).includes(q) || String(c.recv_no).includes(q));
   $('caseCount').textContent = visible.length;
-  const rows = visible.map((c,i)=>`
+  const {slice, page, totalPages} = pageSlice(visible, casePage, 10);
+  casePage = page;
+  const rows = slice.map((c,i)=>`
     <tr id="row${c.app_id}" onclick="selectCase(${c.app_id})">
       <td style="width:26px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" ${batchSel.has(c.app_id)?'checked':''} onchange="toggleBatch(${c.app_id}, this.checked)" title="일괄 다운로드 선택"></td>
-      <td style="width:34px">${i+1}</td>
+      <td style="width:34px">${(page-1)*10 + i + 1}</td>
       <td class="mono">${esc(c.recv_no)}</td>
       <td class="mut">-</td>
       <td class="mono">${esc(c.recv_no)}</td>
@@ -180,18 +184,13 @@ function renderCaseTable(){
     <th>심의유형</th><th>심의내용</th><th>신분</th><th>분과</th><th>담당자</th><th>팀장</th><th>과장</th><th>비고</th><th>담당배정일자</th>
   </tr></thead>
   <tbody>${rows}</tbody></table>
-  ${visible.length ? '' : `<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}조건에 맞는 안건이 없습니다.</div>`}</div>`;
-  renderPage(visible.length);
+  ${slice.length ? '' : `<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}조건에 맞는 안건이 없습니다.</div>`}</div>`;
+  renderPager('gpage', page, totalPages, 'gotoCasePage');
   updateBatchBtn();
-  if(selId && visible.some(c=>c.app_id===selId)) selectCase(selId);
+  if(selId && slice.some(c=>c.app_id===selId)) selectCase(selId);
   else { selId = null; $('aiBtn').disabled = true; }
 }
-function renderPage(n){
-  const pages = Math.max(1, Math.ceil(n/10));
-  let btns = '';
-  for(let p=1;p<=pages;p++) btns += `<button class="${p===1?'on':''}" disabled>${p}</button>`;
-  $('gpage').innerHTML = `<button disabled>«</button>${btns}<button disabled>»</button>`;
-}
+function gotoCasePage(p){ casePage = p; renderCaseTable(); }
 async function seedDemo(){
   $('listwrap').innerHTML = '<div class="empty"><span class="loading">생성 중</span> — 사건·의무기록·과거사례 풀·그래프</div>';
   await fetch('/cases/demo-seed', {method:'POST'}); loadCases();
@@ -266,6 +265,7 @@ function renderWork(){
 
 /* ── 요건심사 · 안건 목록 (특정 안건 미선택 상태) ── */
 function renderWsCaseList(wb){
+  wsCasePage = 1;
   wb.innerHTML = `
     <div class="stepmenu">
       <button class="on">요건심사</button>
@@ -280,7 +280,7 @@ function renderWsCaseList(wb){
           <div class="gfitem"><label>심사구분</label><input></div>
           <div class="gfitem"><label>조회번호</label><input></div>
           <div class="gfitem"><label>소속</label><input></div>
-          <div class="gfitem"><label>성명</label><input id="wsCaseSearch" placeholder="성명 또는 접수번호" oninput="wsRenderCaseTable()"></div>
+          <div class="gfitem"><label>성명</label><input id="wsCaseSearch" placeholder="성명 또는 접수번호" oninput="wsCasePage=1;wsRenderCaseTable()"></div>
           <div class="gfitem"><label>담당자</label><input></div>
           <div class="gfitem"><label>분과</label><input></div>
           <div class="gfitem"><label>신체부위</label><input></div>
@@ -289,7 +289,7 @@ function renderWsCaseList(wb){
           <div class="gfitem range"><label>접수기간</label><input type="date" value="2026-06-13"><span>~</span><input type="date" value="2026-07-15"></div>
           <div class="gfcheck"><input type="checkbox" checked disabled> 나의 안건현황 조회(기간 상관없음) 전체조회</div>
         </div>
-        <div class="gfbtns"><button class="primary" onclick="wsRenderCaseTable()">검색</button><button onclick="$('wsCaseSearch').value='';wsRenderCaseTable()">초기화</button></div>
+        <div class="gfbtns"><button class="primary" onclick="wsCasePage=1;wsRenderCaseTable()">검색</button><button onclick="$('wsCaseSearch').value='';wsCasePage=1;wsRenderCaseTable()">초기화</button></div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
         <div class="glisthead" style="margin-bottom:0;white-space:nowrap">● 안건 목록 [총 <span class="n" id="wsCaseCount">0</span>건]</div>
@@ -318,15 +318,18 @@ async function wsLoadCases(){
   }
   wsRenderCaseTable();
 }
+let wsCasePage = 1;
 function wsRenderCaseTable(){
   const w = $('wsListWrap'); if(!w) return;
   const q = ($('wsCaseSearch')?.value || '').trim();
   const visible = cases.filter(c => !q || String(c.applicant).includes(q) || String(c.recv_no).includes(q));
   $('wsCaseCount').textContent = visible.length;
-  const rows = visible.map((c,i)=>`
+  const {slice, page, totalPages} = pageSlice(visible, wsCasePage, 10);
+  wsCasePage = page;
+  const rows = slice.map((c,i)=>`
     <tr id="wsrow${c.app_id}" onclick="wsSelectCase(${c.app_id})">
       <td style="width:26px;text-align:center" onclick="event.stopPropagation();wsSelectCase(${c.app_id})"><input type="checkbox" ${wsSelId===c.app_id?'checked':''} readonly></td>
-      <td style="width:34px">${i+1}</td>
+      <td style="width:34px">${(page-1)*10 + i + 1}</td>
       <td class="mono">${esc(c.recv_no)}</td>
       <td class="mut">-</td>
       <td class="mono">${esc(c.recv_no)}</td>
@@ -347,17 +350,12 @@ function wsRenderCaseTable(){
     <th>심의유형</th><th>심의내용</th><th>신분</th><th>분과</th><th>담당자</th><th>팀장</th><th>과장</th><th>비고</th><th>담당배정일자</th>
   </tr></thead>
   <tbody>${rows}</tbody></table>
-  ${visible.length ? '' : `<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}조건에 맞는 안건이 없습니다.</div>`}</div>`;
-  wsRenderPage(visible.length);
-  if(wsSelId && visible.some(c=>c.app_id===wsSelId)) wsSelectCase(wsSelId);
+  ${slice.length ? '' : `<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}조건에 맞는 안건이 없습니다.</div>`}</div>`;
+  renderPager('wsPage', page, totalPages, 'gotoWsCasePage');
+  if(wsSelId && slice.some(c=>c.app_id===wsSelId)) wsSelectCase(wsSelId);
   else { wsSelId = null; const b=$('wsGenBtn'); if(b) b.disabled = true; }
 }
-function wsRenderPage(n){
-  const pages = Math.max(1, Math.ceil(n/10));
-  let btns = '';
-  for(let p=1;p<=pages;p++) btns += `<button class="${p===1?'on':''}" disabled>${p}</button>`;
-  $('wsPage').innerHTML = `<button disabled>«</button>${btns}<button disabled>»</button>`;
-}
+function gotoWsCasePage(p){ wsCasePage = p; wsRenderCaseTable(); }
 function wsSelectCase(id){
   wsSelId = id;
   document.querySelectorAll('#wsListWrap table.gx tbody tr').forEach(r=>{
@@ -392,21 +390,23 @@ async function renderTable(){
   }
   if(gv.mode==='detail'){ renderGradeDetail(); return; }
   if(!$('gaListWrap')){
+    gaListPage = 1;
     GP().innerHTML = `<div class="gnv">
       <div class="crumb">상이등급심사 · 심의 인정상이처 — 안건 선택 시 신검과목·검토사항 상세로 이동</div>
       <div class="gfilter">
         <div class="gfgrid">
           <div class="gfitem"><label>안건번호</label><input></div>
-          <div class="gfitem"><label>성명</label><input id="gaSearch" placeholder="성명 또는 안건번호" oninput="renderGaList()"></div>
+          <div class="gfitem"><label>성명</label><input id="gaSearch" placeholder="성명 또는 안건번호" oninput="gaListPage=1;renderGaList()"></div>
           <div class="gfitem"><label>신체부위</label><input></div>
           <div class="gfitem"><label>상이처</label><input></div>
           <div class="gfitem"><label>상이등급</label><input></div>
           <div class="gfitem"><label>상태</label><input></div>
           <div class="gfcheck"><input type="checkbox" checked disabled> 나의 상이등급 안건 조회(기간 상관없음) 전체조회</div>
         </div>
-        <div class="gfbtns"><button class="primary" onclick="renderGaList()">검색</button><button onclick="$('gaSearch').value='';renderGaList()">초기화</button></div>
+        <div class="gfbtns"><button class="primary" onclick="gaListPage=1;renderGaList()">검색</button><button onclick="$('gaSearch').value='';gaListPage=1;renderGaList()">초기화</button></div>
       </div>
       <div id="gaListWrap"></div>
+      <div class="gpage" id="gaPager"></div>
     </div>`;
   }
   renderGaList();
@@ -426,10 +426,13 @@ async function gaBatchDownload(){
   }
   window.open(`/grade-agendas/export-batch?ids=${[...gaBatchSel].join(',')}`, '_blank');
 }
+let gaListPage = 1;
 function renderGaList(){
   const q = ($('gaSearch')?.value || '').trim();
   const visible = gradeAgendas.filter(g => !q || String(g.applicant).includes(q) || String(g.agenda_no).includes(q));
-  const rows = visible.map(g=>`
+  const {slice, page, totalPages} = pageSlice(visible, gaListPage, 10);
+  gaListPage = page;
+  const rows = slice.map(g=>`
     <tr onclick="openGrade(${g.ga_id})">
       <td style="width:26px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" ${gaBatchSel.has(g.ga_id)?'checked':''} onchange="toggleGaBatch(${g.ga_id}, this.checked)" title="일괄 다운로드 선택"></td>
       <td class="mono">${esc(g.agenda_no)}</td>
@@ -446,8 +449,10 @@ function renderGaList(){
     <div class="tblcard"><table class="ds" style="min-width:760px"><thead><tr>
       <th style="width:26px"></th><th>안건번호</th><th>성명</th><th>신체부위</th><th>상이처</th><th>상이등급(기존→재심의)</th><th>AI 판정근거 요약</th><th>상태</th>
     </tr></thead><tbody>${rows}</tbody></table>
-    ${visible.length?'':`<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}${gradeAgendas.length?'조건에 맞는 안건이 없습니다.':'등록된 등급심사 안건이 없습니다 — 안건현황에서 시연용 안건을 생성하세요.'}</div>`}</div>`;
+    ${slice.length?'':`<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}${gradeAgendas.length?'조건에 맞는 안건이 없습니다.':'등록된 등급심사 안건이 없습니다 — 안건현황에서 시연용 안건을 생성하세요.'}</div>`}</div>`;
+  renderPager('gaPager', page, totalPages, 'gotoGaPage');
 }
+function gotoGaPage(p){ gaListPage = p; renderGaList(); }
 function openGrade(gaId){
   const g = gradeAgendas.find(x=>x.ga_id===gaId);
   gv = {mode:'detail', ga:g, tab:'info', diseaseInput:g.injury, part:g.body_part, pred:null, predLoading:false, modal:null, predSel:0};

@@ -7,3 +7,6 @@ openpyxl           # db/extract_seed.py (엑셀->시드)
 reportlab          # 심의의결서 PDF export (services/decision_doc.py)
 sqlglot            # services/stats.py Text-to-SQL AST 검증 (순수 파이썬, 폐쇄망 반입 용이)
 pypdf              # scripts/extract_pdf_corpus.py (페이지 보존 PDF 추출)
+pymupdf            # scripts/ocr_ingest_scans.py (스캔 PDF 렌더링·텍스트층 추출)
+pytesseract        # scripts/ocr_ingest_scans.py (OCR — 시스템에 tesseract-ocr+kor 필요)
+pillow             # OCR 이미지 처리

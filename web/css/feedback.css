@@ -112,6 +112,11 @@ textarea{resize:vertical;min-height:120px;line-height:1.6}
 .chip{font-size:12px;padding:4px 12px;border-radius:9999px;border:1px solid var(--border);color:var(--muted-fg);background:var(--white);cursor:pointer;transition:background .15s,color .15s}
 .chip.on{border-color:var(--slate-900);color:var(--fg);background:var(--surface-muted);font-weight:600}
 .empty{padding:40px;text-align:center;color:var(--muted-fg);font-size:13px}
+.pager{display:flex;justify-content:center;align-items:center;gap:4px;padding:14px 0;font-size:12px;color:var(--muted-fg)}
+.pager:empty{padding:0}
+.pager button{border:1px solid var(--border-strong);background:#fff;border-radius:var(--radius-sm);width:26px;height:26px;color:var(--muted-fg);cursor:pointer}
+.pager button.on{background:var(--slate-900);border-color:var(--slate-900);color:#fff;font-weight:700}
+.pager button:disabled{opacity:.4;cursor:default}
 
 /* ── 의견 테이블 (table.ds 문법) ── */
 table{width:100%;border-collapse:collapse}

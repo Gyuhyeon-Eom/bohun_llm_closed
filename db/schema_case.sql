@@ -219,3 +219,23 @@ CREATE INDEX IF NOT EXISTS idx_chat_message_cs ON chat_message(cs_id, seq);
 -- 상이처별로 직전등급→신검과목→신검등급→소견→제안등급을 매기고 종합 제안등급을 산출하는 로직 반영.
 -- [{injury, prev_grade, exam_dept, exam_grade, opinion}] — 미설정 시 기존 단일 컬럼(yeu_injury 등)으로 대체.
 ALTER TABLE grade_agenda ADD COLUMN IF NOT EXISTS injury_items JSONB;
+
+-- ── 신체검사 서류 스캔본 OCR 적재 (260720): 스캔 PDF → OCR → 정형 파싱 → 사건 변환 ──
+-- scripts/ocr_ingest_scans.py 가 적재, services/scan_to_case.py 가 application으로 변환
+CREATE TABLE IF NOT EXISTS scan_doc (
+  sd_id      BIGSERIAL PRIMARY KEY,
+  reg_no     TEXT,                        -- 병원 등록번호 (문서 헤더 OCR)
+  person     TEXT,                        -- 성명 (문서 헤더 OCR)
+  sex_age    TEXT,                        -- 성별/나이
+  hospital   TEXT,                        -- 발행기관 (보훈병원 등, 미검출 시 NULL)
+  doc_kind   TEXT,                        -- 문서 종류 (영상검사결과 등)
+  file_name  TEXT UNIQUE,                 -- 원본 파일명 (재적재 시 대체 기준)
+  orig_path  TEXT,                        -- 보존된 원본 PDF 경로 (출처 열람용)
+  pages      INT,
+  ocr_used   BOOLEAN DEFAULT false,       -- true=이미지 OCR / false=텍스트층 추출
+  raw_text   TEXT,                        -- 전체 추출 텍스트 (페이지 \f 구분)
+  exams      JSONB,                       -- 검사 블록 [{page,req_date,exam_date,read_date,dx,exam_name,finding,conclusion,recommendation,reader}]
+  app_id     BIGINT,                      -- 사건 변환 시 연결된 application
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scan_doc_person ON scan_doc(person, reg_no);

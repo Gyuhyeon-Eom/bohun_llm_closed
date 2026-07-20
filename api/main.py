@@ -5,6 +5,7 @@ TODO(확인): 운영 전환 시 MockLLM -> FabrixClient, HashEmbedder -> bge로 
   (환경변수 EMBED_BACKEND=bge + 아래 _llm 한 줄)
 """
 import json as _json
+import os
 import tempfile, threading, time
 from pathlib import Path
 from fastapi import FastAPI
@@ -408,6 +409,50 @@ def api_grade_export(ga_id: int):
     fname, path = grade_export.export_xlsx(ga_id, emb=_emb)
     return FileResponse(path, filename=fname,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/scan-docs")                # 스캔 의무기록 목록 (OCR 적재분)
+def api_scan_docs():
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT sd_id, reg_no, person, sex_age, hospital, doc_kind, file_name,"
+                    " pages, ocr_used, jsonb_array_length(coalesce(exams,'[]'::jsonb)) AS n_exams,"
+                    " app_id, created_at FROM scan_doc ORDER BY sd_id")
+        return cur.fetchall()
+
+
+@app.get("/scan-docs/{sd_id}")        # 스캔 문서 상세 (파싱된 검사 블록)
+def api_scan_doc(sd_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT sd_id, reg_no, person, sex_age, hospital, doc_kind, file_name,"
+                    " pages, ocr_used, exams, app_id FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        row = cur.fetchone()
+        return row or {"error": "스캔 문서 없음"}
+
+
+@app.get("/scan-docs/{sd_id}/file")   # 스캔 원본 PDF (열람·다운로드)
+def api_scan_doc_file(sd_id: int, dl: int = 0):
+    import psycopg
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT orig_path, file_name FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        row = cur.fetchone()
+    if not row or not row[0] or not os.path.exists(row[0]):
+        return {"error": "원본 파일 없음"}
+    disp = "attachment" if dl else "inline"
+    return FileResponse(row[0], filename=row[1], media_type="application/pdf",
+                        content_disposition_type=disp)
+
+
+@app.post("/scan-docs/{sd_id}/to-case")   # 스캔 문서 → 심사 사건 변환 (HITL 전제)
+def api_scan_to_case(sd_id: int):
+    from services import scan_to_case
+    return scan_to_case.to_case(sd_id)
 
 
 class FeedbackReq(BaseModel):

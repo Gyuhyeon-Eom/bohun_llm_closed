@@ -19,6 +19,7 @@
 | 4-나 | **PostgreSQL 16+ 패키지** | 수동² — 서버 OS 확정 후 배포판 패키지 | DB | 서버 | ~60MB |
 | 4-다 | `system/pgvector-0.8.0.tar.gz` | download_all.py 자동 (소스 빌드: make) | 벡터 확장 | 서버 | 1MB |
 | 4-라 | `system/Python-3.12.8.tgz` | download_all.py 자동 (OS 패키지 없을 때 소스 빌드용) | Python 본체 | 서버 | 27MB |
+| 4-마 | **tesseract-ocr + kor** | 수동² — 4-나와 같은 명령에 포함(스캔 의무기록 OCR용) / 윈도우는 설치본 | OCR 엔진 | 서버·개발PC | ~30MB |
 | 5 | `fonts/NanumGothic-Regular.ttf` | download_all.py 자동 | 의결서 PDF 한글 | 서버 | 4MB |
 | 6 | IntelliJ IDEA CE 설치본 (win/linux) | `download_all.py --tools` | IDE | 개발PC | ~1GB×2 |
 | 7 | Git for Windows | 수동 — https://git-scm.com/download/win | 형상관리 | 윈도우 개발PC | 60MB |
@@ -37,14 +38,16 @@
 apt-get update
 apt-get install --download-only -o Dir::Cache::archives=$PWD/pgpkgs -y \
     python3 python3-venv python3-pip \
-    postgresql-16 postgresql-client-16 postgresql-server-dev-16 build-essential
+    postgresql-16 postgresql-client-16 postgresql-server-dev-16 build-essential \
+    tesseract-ocr tesseract-ocr-kor
 # → pgpkgs/*.deb 전체(의존성 포함)를 transfer_out/system/pgpkgs/ 로 복사
 #   내부망 설치: sudo dpkg -i transfer_out/system/pgpkgs/*.deb   (dpkg는 OS 내장 — 파이썬 불필요)
 
 # RHEL 8/9 계열 (--resolve 가 의존성 포함)
 dnf download --resolve --alldeps --destdir ./pgpkgs \
     python3.12 python3.12-pip \
-    postgresql16-server postgresql16-devel gcc make redhat-rpm-config
+    postgresql16-server postgresql16-devel gcc make redhat-rpm-config \
+    tesseract tesseract-langpack-kor
 #   내부망 설치: sudo dnf install --disablerepo='*' ./pgpkgs/*.rpm   (dnf/rpm은 OS 내장)
 ```
 ⚠ 서버 OS의 python3 버전이 휠 수집 기준(PY_VER=3.12)과 일치해야 한다 — Ubuntu 22.04는
