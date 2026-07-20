@@ -387,10 +387,10 @@ def api_grade_log_add(ga_id: int, req: GradeLogReq):
     return {"ok": True}
 
 
-@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (세로형)
+@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (확정 양식 12컬럼)
 def api_grade_export(ga_id: int):
     from services import grade_export
-    fname, path = grade_export.export_xlsx(ga_id)
+    fname, path = grade_export.export_xlsx(ga_id, emb=_emb)
     return FileResponse(path, filename=fname,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 

@@ -27,22 +27,44 @@ def _fetch(ga_id):
     return ags, logs_by
 
 
-# 원본 양식 컬럼 (좌 → 우) — 실제 양식 사진 기준 9컬럼.
-# "상이처 및 소견"(__soken__)은 여러 필드를 한 칸에 여러 줄로 합침(핵심 넓은 칸).
+# 심사표 컬럼 (좌 → 우) — 확정 양식 12컬럼 (260720).
+# "상이정도 및 소견"(__soken__)은 측정치·소견을 한 칸에 여러 줄로 합침(핵심 넓은 칸).
 COLUMNS = [
-    ("신청구분", "apply_type", 12),
-    ("성명\n(주민등록번호)", "__name__", 16),
-    ("대상구분\n(요건인정 상이처)", "__target__", 22),
-    ("직접심의", "direct_review", 10),
+    ("신검종류", "apply_type", 11),
+    ("성명", "applicant", 9),
+    ("주민등록번호", "resident_no", 15),
+    ("대상구분", "target_type", 11),
+    ("요건인정 상이처", "__yeu__", 22),
+    ("직전등급\n신검과목", "__prev__", 15),
     ("신검등급", "exam_grade", 12),
-    ("신검과목", "exam_dept", 11),
-    ("상이처 및 소견\n(보훈병원 전문의)", "__soken__", 68),
-    ("관련자료", "related_docs", 26),
-    ("비고", "note_items", 24),
+    ("상이정도 및 소견\n(보훈병원 전문의)", "__soken__", 58),
+    ("관련자료", "related_docs", 24),
+    ("검토사항\n비고", "__review__", 34),
+    ("상이처별 제안등급", "__grade_each__", 24),
+    ("종합 제안등급", "__grade_total__", 14),
 ]
 
 
-def export_xlsx(ga_id=None):
+def _prev_grade(ag):
+    """직전등급: grade_change('7급 8122호 → 재심의 대상')의 화살표 앞부분."""
+    gc = ag.get("grade_change") or ""
+    return gc.split("→")[0].strip() or "—"
+
+
+def _predict_grade(ag, emb):
+    """상이처별 AI 제안등급 — grade_predict(별표3 대조)로 산출. 실패 시 None."""
+    if emb is None:
+        return None
+    try:
+        from services import grade_predict
+        r = grade_predict.predict(ag.get("yeu_injury") or ag.get("injury") or "",
+                                  ag.get("body_part"), emb, n=3)
+        return r.get("grade1")
+    except Exception:
+        return None
+
+
+def export_xlsx(ga_id=None, emb=None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
     from openpyxl.utils import get_column_letter
@@ -103,47 +125,53 @@ def export_xlsx(ga_id=None):
                           + (f"({x.get('result')})" if x.get('result') else "") for x in m)
 
     def soken(ag):
-        """상이처 및 소견 — 한 칸에 여러 줄로 합침 (원본 양식의 넓은 칸)."""
+        """상이정도 및 소견(보훈병원 전문의) — 측정치·소견 중심으로 한 칸에 여러 줄.
+        (상이처·직전등급·검토사항은 별도 컬럼으로 분리 — 여기 중복 기재 안 함)"""
         L = []
-        L.append(f"○ 상이처: {ag.get('injury') or '—'} ({ag.get('body_part') or ''})")
-        L.append(f"○ 상이등급: {ag.get('grade_change') or '—'}")
         if ag.get("base_date") or ag.get("grade_date"):
             L.append(f"○ 기준일자 {ag.get('base_date') or '—'} / 등급기준일 {ag.get('grade_date') or '—'}")
-        if ag.get("onset_narrative"):
-            L.append(f"○ 발생경위: {ag['onset_narrative']}")
         ms = _measure_str(ag)
         if ms:
             L.append(f"○ 신체검사 측정치: {ms}")
         if ag.get("specialist_opinion"):
             L.append(f"○ 전문의 소견: {ag['specialist_opinion']}")
+        if ag.get("onset_narrative"):
+            L.append(f"○ 발생경위: {ag['onset_narrative']}")
         if ag.get("prior_history"):
             L.append(f"○ 이전 판정·재심의 경위: {ag['prior_history']}")
         if ag.get("past_history"):
             L.append(f"○ 과거력·기왕증: {ag['past_history']}")
         if ag.get("route_note"):
             L.append(f"○ 경로사항: {ag['route_note']}")
-        if ag.get("review_items"):
-            L.append("○ 검토사항: " + " / ".join(ag["review_items"]))
-        return "\n".join(L)
+        return "\n".join(L) or "—"
 
     for ri, ag in enumerate(ags, hr + 1):
+        # AI 제안등급: 상이처별 = 별표3 대조 예측, 종합 = 상이처별 종합(현재 안건당 상이처 1건)
+        g1 = _predict_grade(ag, emb)
+        injury_label = ag.get("yeu_injury") or ag.get("injury") or "—"
         for ci, (label, key, _) in enumerate(COLUMNS, 1):
-            if key == "__name__":
-                val = f"{ag.get('applicant') or ''}\n({ag.get('resident_no') or ''})"
-            elif key == "__target__":
-                val = f"{ag.get('target_type') or ''}\n{ag.get('yeu_injury') or ag.get('injury') or ''}"
+            if key == "__yeu__":
+                val = injury_label
+            elif key == "__prev__":
+                val = f"{_prev_grade(ag)}\n{ag.get('exam_dept') or '—'}"
             elif key == "__soken__":
                 val = soken(ag)
-            elif key == "note_items" and ag.get(key):
-                val = "\n".join(f"◇ {x}" for x in ag[key])
+            elif key == "__review__":
+                L = [f"○ {x}" for x in (ag.get("review_items") or [])]
+                L += [f"◇ {x}" for x in (ag.get("note_items") or [])]
+                val = "\n".join(L) or "—"
+            elif key == "__grade_each__":
+                val = f"· {injury_label}: {g1}" if g1 else "— (AI 예측 미실행)"
+            elif key == "__grade_total__":
+                val = g1 or "—"
             elif key == "related_docs" and ag.get(key):
                 val = "\n".join(f"· {x}" for x in ag[key])
             else:
                 val = fmt(ag.get(key))
             c = ws.cell(ri, ci, val)
             c.font = cf; c.border = border
-            c.alignment = wrap_l if key in ("__soken__", "__name__", "__target__",
-                "note_items", "related_docs") else wrap
+            c.alignment = wrap_l if key in ("__soken__", "__yeu__", "__review__",
+                "__grade_each__", "related_docs") else wrap
         # 소견 칸 줄 수에 맞춰 행 높이 (넓은 칸이 세로로 길어짐)
         soken_lines = soken(ag).count("\n") + 1
         # 셀 폭 68 기준 대략 줄바꿈 추정
