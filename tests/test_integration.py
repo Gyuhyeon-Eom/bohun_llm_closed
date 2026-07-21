@@ -61,6 +61,8 @@ def test_review_doc_graph():
 
 
 def test_cases_similar():
+    """주의: cases 풀을 갈아끼우고 검증하므로 반드시 원본을 스냅샷 후 복원한다
+    (과거엔 TRUNCATE만 하고 끝나 시연 사례 풀 60건을 날리는 사고가 있었음)."""
     rows = []
     for i in range(6):  # 더미 사례
         decision = "해당" if i % 2 else "비해당"
@@ -68,15 +70,28 @@ def test_cases_similar():
         rows.append(("요건심의", "신규", kcds, decision,
                      datetime.date(2024, 1 + i % 12, 1), f"더미 사례 {i}", EMB.encode([f"사례 {i}"])[0]))
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
-        cur.execute("TRUNCATE cases RESTART IDENTITY")
-        cur.executemany(
-            "INSERT INTO cases(review_type,exam_category,kcd_codes,decision,decided_at,summary,summary_embedding)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s)", rows)
-    sim = similar_case.find_similar(EMB.encode(["사례 3"])[0], "요건심의", n=3)
-    assert len(sim) == 3
-    kcd_sim = similar_case.find_similar(EMB.encode(["사례 3"])[0], kcd_codes=["M21.27"], n=3)
-    assert all("M21.27" in c["kcd_codes"] for c in kcd_sim), "KCD 필터 실패"
-    print(f"PASS similar: 유사 {len(sim)}건, KCD필터 {len(kcd_sim)}건")
+        cur.execute("SELECT case_id, review_type, exam_category, kcd_codes, decision,"
+                    " decided_at, summary, summary_embedding FROM cases ORDER BY case_id")
+        snapshot = cur.fetchall()
+    try:
+        with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+            cur.execute("TRUNCATE cases RESTART IDENTITY")
+            cur.executemany(
+                "INSERT INTO cases(review_type,exam_category,kcd_codes,decision,decided_at,summary,summary_embedding)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s)", rows)
+        sim = similar_case.find_similar(EMB.encode(["사례 3"])[0], "요건심의", n=3)
+        assert len(sim) == 3
+        kcd_sim = similar_case.find_similar(EMB.encode(["사례 3"])[0], kcd_codes=["M21.27"], n=3)
+        assert all("M21.27" in c["kcd_codes"] for c in kcd_sim), "KCD 필터 실패"
+        print(f"PASS similar: 유사 {len(sim)}건, KCD필터 {len(kcd_sim)}건")
+    finally:  # 원본 사례 풀 복원 (case_id 보존 + 시퀀스 재정렬)
+        with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+            cur.execute("TRUNCATE cases RESTART IDENTITY")
+            cur.executemany(
+                "INSERT INTO cases(case_id,review_type,exam_category,kcd_codes,decision,decided_at,summary,summary_embedding)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", snapshot)
+            cur.execute("SELECT setval(pg_get_serial_sequence('cases','case_id'),"
+                        " COALESCE((SELECT max(case_id) FROM cases), 1))")
 
 
 def test_stats():
