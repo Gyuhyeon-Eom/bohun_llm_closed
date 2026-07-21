@@ -812,7 +812,10 @@ def _grade_narrative(part, dept, injury, grade, base_date, nm, rnd):
 def seed_grade_demo(cur, emb):
     """상이등급심사 시연 데이터: 재심의 안건 3건 + 과거 등급사례 풀 (화면설계 v0.4-260714).
     등급·호수는 시행령 별표3 실기준(분류번호)과 대조·정정 완료 (2026-07-15)."""
-    cur.execute("TRUNCATE grade_log, grade_agenda, grade_case RESTART IDENTITY")
+    # 실데이터 안건(is_real)은 보존 — 시연 표본만 갈아끼운다
+    cur.execute("DELETE FROM grade_log WHERE ga_id IN (SELECT ga_id FROM grade_agenda WHERE NOT is_real)")
+    cur.execute("DELETE FROM grade_agenda WHERE NOT is_real")
+    cur.execute("TRUNCATE grade_case RESTART IDENTITY")
 
     agendas = [
         ("2026-0417호", "신O진", "20262204830", "재심의(신규)", "팔 및 손가락",
@@ -967,7 +970,7 @@ def seed_grade_demo(cur, emb):
                      _json.dumps(items, ensure_ascii=False), new_ga_id))
 
     # ── 작업로그(grade_log) 자동 시드: 각 안건 progress까지 DAG 이벤트 생성 ──
-    cur.execute("TRUNCATE grade_log RESTART IDENTITY")
+    cur.execute("DELETE FROM grade_log WHERE ga_id IN (SELECT ga_id FROM grade_agenda WHERE NOT is_real)")
     _STEP_SEQ = ["접수", "자료수집", "AI예측", "검토", "의결", "완료"]
     _STEP_EVENTS = {
         "접수":   [("안건 접수", "시스템", "재심의 신청 접수", None)],

@@ -436,7 +436,7 @@ function renderGaList(){
     <tr onclick="openGrade(${g.ga_id})">
       <td style="width:26px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" ${gaBatchSel.has(g.ga_id)?'checked':''} onchange="toggleGaBatch(${g.ga_id}, this.checked)" title="일괄 다운로드 선택"></td>
       <td class="mono">${esc(g.agenda_no)}</td>
-      <td class="ink">${esc(g.applicant)}</td>
+      <td class="ink">${esc(g.applicant)}${g.is_real?' <span class="realtag">실데이터</span>':''}</td>
       <td class="ink" style="text-decoration:underline">${esc(g.body_part)}</td>
       <td>${esc(g.injury)}</td>
       <td class="mono" style="font-size:12px">${esc(g.grade_change)}</td>
@@ -468,7 +468,7 @@ function setGTab(t){
 function renderGradeDetail(){
   const g = gv.ga;
   const info = `<button class="backlink" onclick="gradeBack()">${icon('IconArrowLeft',14)} 목록으로</button>
-    <div class="ginfo">${[['안건번호',g.agenda_no],['성명',g.applicant],['접수번호',g.recv_no],['신청구분',g.apply_type]]
+    <div class="ginfo">${g.is_real?'<span class="realtag" style="margin-right:8px">실데이터</span>':''}${[['안건번호',g.agenda_no],['성명',g.applicant],['접수번호',g.recv_no],['신청구분',g.apply_type]]
       .map(([l,v])=>`<span><span class="l">${l}</span><span class="v ${l==='접수번호'?'mono':''}">${esc(v)}</span></span>`).join('')}</div>
     <div id="gradeDag">${gradeDagWidget(g)}</div>
     <div class="gtabs">

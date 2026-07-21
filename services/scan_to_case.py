@@ -109,6 +109,75 @@ def _to_case_real(cur, conn, sd, blocks) -> dict:
             "records": len(blocks), "is_real": True, "existed": False}
 
 
+def to_grade(sd_id: int) -> dict:
+    """실데이터 신검 서류 묶음 → 상이등급 안건(grade_agenda) 변환.
+    (신체검사 의사 소견서·검진결과통보서 등은 요건심사가 아니라 등급심사 서류)"""
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        sd = cur.fetchone()
+        if not sd:
+            return {"error": "스캔 문서 없음"}
+        if sd.get("ga_id"):
+            return {"ga_id": sd["ga_id"], "existed": True}
+        blocks = sd["exams"] or []
+        if isinstance(blocks, str):
+            blocks = json.loads(blocks)
+        if not blocks:
+            return {"error": "파싱된 하위문서가 없어 변환 불가"}
+
+        agenda_no = f"RD{sd['reg_no'] or sd['sd_id']}호"
+        cur.execute("SELECT ga_id FROM grade_agenda WHERE agenda_no=%s", (agenda_no,))
+        dup = cur.fetchone()
+        if dup:
+            cur.execute("UPDATE scan_doc SET ga_id=%s WHERE sd_id=%s", (dup["ga_id"], sd_id))
+            conn.commit()
+            return {"ga_id": dup["ga_id"], "existed": True, "relinked": True}
+
+        def first(key):
+            return next((b["fields"].get(key) for b in blocks if b["fields"].get(key)), None)
+
+        disease = first("disease") or (sd["doc_kind"] or "").replace("의무기록 묶음(", "").rstrip(")") or "질병명 미상"
+        grade = first("grade")
+        exam_kind = first("exam_kind") or "재확인"
+        exam_dept = first("exam_dept")
+        opinion = first("opinion")
+        full = sd.get("raw_text") or ""
+        if "고엽제" in full:
+            disease_ctx = f"{disease} (고엽제 후유의증)"
+        else:
+            disease_ctx = disease
+        docs = list(dict.fromkeys(b["doc"] for b in blocks))
+
+        cur.execute(
+            """INSERT INTO grade_agenda(agenda_no, applicant, recv_no, apply_type, body_part,
+               injury, base_date, exam_dept, grade_date, grade_change, ai_summary, status,
+               review_items, note_items, progress, assignee, resident_no, target_type,
+               yeu_injury, direct_review, exam_grade, specialist_opinion, related_docs,
+               injury_items, is_real)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true)
+               RETURNING ga_id""",
+            (agenda_no, sd["person"] or "성명미상", f"RD{sd['reg_no'] or sd_id}",
+             f"재심의({exam_kind})" if exam_kind in ("재심", "신규") else exam_kind,
+             None, disease_ctx, first("date"), exam_dept, first("date"),
+             f"{grade or '미기재'} → {exam_kind} 대상",
+             f"실데이터 신검 서류 {len(blocks)}건 OCR 적재 — {disease_ctx} 등급 대조 필요", "미흡",
+             [f"신검 서류 원문 대조 확인 필요 ({sd['hospital'] or '기관미상'})",
+              f"등급및분류번호 {grade or '미기재'} — 별표3 기준 부합 여부 확인"],
+             ["실데이터 — 개인정보 마스킹 적용분"], "자료수집", None,
+             f"{sd['reg_no']}-*******" if sd.get("reg_no") else None,
+             "고엽제후유의증" if "고엽제" in full else "공상군경",
+             disease, None, grade, opinion, docs,
+             json.dumps([{"injury": disease, "body_part": None, "prev_grade": grade,
+                          "exam_dept": exam_dept, "exam_grade": grade, "opinion": opinion,
+                          "review_items": None, "note_items": None, "related_docs": docs}],
+                        ensure_ascii=False)))
+        ga_id = cur.fetchone()["ga_id"]
+        cur.execute("UPDATE scan_doc SET ga_id=%s WHERE sd_id=%s", (ga_id, sd_id))
+        conn.commit()
+        return {"ga_id": ga_id, "agenda_no": agenda_no, "injury": disease_ctx,
+                "exam_grade": grade, "is_real": True, "existed": False}
+
+
 def to_case(sd_id: int) -> dict:
     """scan_doc 1건을 application 사건으로 변환. 이미 변환된 경우 기존 app_id 반환."""
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:

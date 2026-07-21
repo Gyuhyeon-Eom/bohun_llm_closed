@@ -154,7 +154,11 @@ def export_xlsx(ga_id=None, emb=None):
     ws.cell(1, 1).alignment = center
     ws.row_dimensions[1].height = 28
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncol)
-    ws.cell(2, 1, "※ 시연용 표본 — 실제 사례 아님(개인정보 미포함)").font = Font(name="맑은 고딕", size=9, color="B45309")
+    if any(a.get("is_real") for a in ags):  # 실데이터 포함 시 파란 강조 (표본 문구 대신)
+        ws.cell(2, 1, "※ 실데이터 포함 — 개인정보 마스킹 적용분, 취급 주의").font = \
+            Font(name="맑은 고딕", size=9, bold=True, color="1D4ED8")
+    else:
+        ws.cell(2, 1, "※ 시연용 표본 — 실제 사례 아님(개인정보 미포함)").font = Font(name="맑은 고딕", size=9, color="B45309")
     ws.cell(2, 1).alignment = center
 
     hr = 4
@@ -229,6 +233,8 @@ def export_xlsx(ga_id=None, emb=None):
             for ci, (label, key, _w, scope) in enumerate(COLUMNS, 1):
                 if scope == "ag":
                     val = (total or "—") if key == "__grade_total__" else fmt(ag.get(key))
+                    if key == "applicant" and ag.get("is_real"):
+                        val = f"{val}\n[실데이터]"
                     if k > 0:
                         val = None  # 병합 범위 — 값은 첫 행에만
                 elif key == "__opinion__":

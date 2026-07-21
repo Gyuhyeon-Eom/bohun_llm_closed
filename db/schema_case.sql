@@ -258,3 +258,7 @@ CREATE TABLE IF NOT EXISTS judgment_rule (
   basis           TEXT                       -- 근거 (v2.4 시트 위치·의안번호 등)
 );
 CREATE INDEX IF NOT EXISTS idx_judgment_rule_sub ON judgment_rule(subcommittee);
+
+-- ── 실데이터 스캔 → 상이등급 안건 연결 (260721): 신검 서류는 등급심사 흐름으로 ──
+ALTER TABLE grade_agenda ADD COLUMN IF NOT EXISTS is_real BOOLEAN DEFAULT false;
+ALTER TABLE scan_doc     ADD COLUMN IF NOT EXISTS ga_id   BIGINT;   -- 등급 안건 변환 시 연결

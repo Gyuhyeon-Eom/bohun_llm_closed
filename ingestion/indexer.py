@@ -46,5 +46,5 @@ def index_document(path: str, doc_type: str, chunks: list[Chunk],
             cur.execute(
                 "INSERT INTO chunks(doc_id, block_type, content, page_no, embedding)"
                 " VALUES (%s,%s,%s,%s,%s)",
-                (doc_id, c.block_type.value, c.content, c.page_no, v))
+                (doc_id, c.block_type.value, c.content.replace("\x00", ""), c.page_no, v))
         return len(chunks)

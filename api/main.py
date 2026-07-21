@@ -456,10 +456,16 @@ def api_scan_doc_file(sd_id: int, dl: int = 0):
                         content_disposition_type=disp)
 
 
-@app.post("/scan-docs/{sd_id}/to-case")   # 스캔 문서 → 심사 사건 변환 (HITL 전제)
+@app.post("/scan-docs/{sd_id}/to-case")   # 스캔 문서 → 요건심사 사건 변환 (HITL 전제)
 def api_scan_to_case(sd_id: int):
     from services import scan_to_case
     return scan_to_case.to_case(sd_id)
+
+
+@app.post("/scan-docs/{sd_id}/to-grade")  # 스캔 문서 → 상이등급 안건 변환 (신검 서류)
+def api_scan_to_grade(sd_id: int):
+    from services import scan_to_case
+    return scan_to_case.to_grade(sd_id)
 
 
 class FeedbackReq(BaseModel):

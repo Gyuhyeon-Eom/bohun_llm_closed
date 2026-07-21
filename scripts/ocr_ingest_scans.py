@@ -193,6 +193,14 @@ def parse_real_bundle(text):
         g = RE_GRADE.search(body)
         if g:
             f["grade"] = g.group(1)
+        if "신체검사" in title or "소견서" in title:  # 신검 서류 특화 필드
+            # 서식에 신규/재심 라벨이 항상 인쇄돼 있어 재확인·재판정을 우선 매칭
+            mk = re.search(r"재확인|재판정", body) or re.search(r"재\s?심|신\s?규", body)
+            if mk:
+                f["exam_kind"] = re.sub(r"\s", "", mk.group(0))
+            mo = re.search(r"(?:신체\s?장애\s?정도|검진\s?소견\s?1?)\s*\n+\s*(.{4,120}?)\n", body)
+            if mo and _valid_disease(mo.group(1)):
+                f["opinion"] = mo.group(1).strip()[:200]
         k = RE_KCD.search(body)
         if k and title in ("진단서", "진 단서".replace(" ", "")):
             f["kcd"] = k.group(1)
