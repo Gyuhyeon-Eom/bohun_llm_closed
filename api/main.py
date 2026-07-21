@@ -468,6 +468,23 @@ def api_scan_to_grade(sd_id: int):
     return scan_to_case.to_grade(sd_id)
 
 
+@app.post("/scan-docs/{sd_id}/normalize")  # OCR 텍스트 LLM 정규화 (260721 회의 반영)
+def api_scan_normalize(sd_id: int, force: int = 0):
+    from services import ocr_normalize
+    return ocr_normalize.normalize_scan(sd_id, force=bool(force))
+
+
+@app.get("/grade-agendas/{ga_id}/scan")   # 등급 안건에 연결된 스캔 원문·정규화 결과 (근거 추적)
+def api_grade_scan(ga_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT sd_id, person, hospital, doc_kind, file_name, pages, exams"
+                    " FROM scan_doc WHERE ga_id=%s ORDER BY sd_id", (ga_id,))
+        return cur.fetchall()
+
+
 class FeedbackReq(BaseModel):
     author: str = "익명"
     content: str

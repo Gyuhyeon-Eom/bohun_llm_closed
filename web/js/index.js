@@ -483,6 +483,33 @@ function renderGradeDetail(){
   GP().innerHTML = info + body + gradeModal();
   GP().scrollTop = 0;
   loadGradeLog(g.ga_id);
+  if(g.is_real && gv.tab==='info') loadGradeScan(g.ga_id);
+}
+
+/* 실데이터 안건: 연결된 스캔 하위문서 + LLM 정규화 결과 (근거 추적 — 0721 회의 반영) */
+async function loadGradeScan(gaId){
+  const box = $('gradeScanBox'); if(!box) return;
+  try{
+    const docs = await (await fetch(`/grade-agendas/${gaId}/scan`)).json();
+    if(!docs.length){ box.innerHTML=''; return; }
+    box.innerHTML = docs.map(sd=>{
+      const rows = (sd.exams||[]).map(b=>{
+        const n = b.norm||{};
+        return `<tr>
+          <td class="ink" style="white-space:nowrap">${esc(b.doc)}</td>
+          <td class="mono" style="white-space:nowrap">${esc(n.date||b.fields?.date||'')}</td>
+          <td style="white-space:normal;font-size:12px">${esc(n.summary||n.opinion||b.excerpt?.slice(0,90)||'')}</td>
+          <td style="white-space:normal;font-size:12px" class="mut">${(n.key_findings||[]).slice(0,2).map(k=>`“${esc(k)}”`).join('<br>')}</td>
+          <td class="mono mut" style="white-space:nowrap">원문 ${b.line}행${n.source?` · ${n.source==='llm'?'LLM':'규칙'}`:''}</td></tr>`;
+      }).join('');
+      return `<h4>스캔 원문 · 정규화 <span class="realtag">실데이터</span>
+          <span class="mut">(${esc(sd.file_name)} — 하위문서 ${ (sd.exams||[]).length }건, 정규화는 LLM 정제·요약만/사실 생성 금지)</span>
+          <a class="btn outline sm" style="float:right;text-decoration:none" href="/scan-docs/${sd.sd_id}/file" target="_blank">${icon('IconFileText',13)} OCR 원문 전체 보기</a></h4>
+        <div class="tblcard" style="margin-bottom:16px"><table class="ds" style="min-width:820px"><thead><tr>
+          <th>문서</th><th style="width:92px">날짜</th><th>정규화 요약</th><th>핵심 근거문장</th><th style="width:110px">출처</th></tr></thead>
+          <tbody>${rows}</tbody></table></div>`;
+    }).join('');
+  }catch(e){ box.innerHTML=''; }
 }
 
 // ── 진행상태 DAG (가로 그래프) ──
@@ -556,6 +583,7 @@ function gradeInfoBody(g){
       <th>신체부위</th><th>상이처</th><th>기준일자</th><th>신검과목</th><th>신검등급</th><th>등급기준일</th><th>상이등급(기존→재심의)</th></tr></thead>
       <tbody><tr><td class="ink">${esc(g.body_part)}</td><td>${esc(g.injury)}</td><td class="mono">${esc(g.base_date)}</td>
         <td>${esc(g.exam_dept)}</td><td class="mono">${dash(g.exam_grade)}</td><td class="mono">${esc(g.grade_date)}</td><td style="white-space:normal">${esc(g.grade_change)}</td></tr></tbody></table></div>
+    <div id="gradeScanBox"></div>
     ${itemRows?`<h4>요건인정 상이처별 현황 <span class="mut">(상이처별 직전등급·신검과목·신검등급 → 심사표에서 상이처별 제안등급·종합 제안등급 산출)</span></h4>
     <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
       <th style="width:30px">#</th><th>요건인정 상이처</th><th>신체부위</th><th>직전등급</th><th>신검과목</th><th>신검등급</th></tr></thead>

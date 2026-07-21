@@ -134,7 +134,10 @@ def to_grade(sd_id: int) -> dict:
             return {"ga_id": dup["ga_id"], "existed": True, "relinked": True}
 
         def first(key):
-            return next((b["fields"].get(key) for b in blocks if b["fields"].get(key)), None)
+            # LLM 정규화 결과(norm) 우선, 없으면 규칙 추출 필드(fields)
+            return next((v for b in blocks
+                         for v in [(b.get("norm") or {}).get(key) or (b.get("fields") or {}).get(key)]
+                         if v), None)
 
         disease = first("disease") or (sd["doc_kind"] or "").replace("의무기록 묶음(", "").rstrip(")") or "질병명 미상"
         grade = first("grade")
