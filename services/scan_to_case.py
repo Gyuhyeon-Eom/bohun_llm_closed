@@ -45,6 +45,67 @@ def _map_finding(txt):
     return name or txt.strip().rstrip("."), part, side
 
 
+def _to_case_real(cur, conn, sd, blocks) -> dict:
+    """실데이터 의무기록 묶음 → 사건 변환. 분과는 심의내용 키워드·KCD로 자동 라우팅."""
+    from core.subcommittee import resolve
+
+    recv_no = f"RD{sd['reg_no'] or sd['sd_id']}"
+    cur.execute("SELECT app_id FROM application WHERE recv_no=%s", (recv_no,))
+    dup = cur.fetchone()
+    if dup:
+        cur.execute("UPDATE scan_doc SET app_id=%s WHERE sd_id=%s", (dup["app_id"], sd["sd_id"]))
+        conn.commit()
+        return {"app_id": dup["app_id"], "existed": True, "relinked": True}
+
+    disease = next((b["fields"].get("disease") for b in blocks if b["fields"].get("disease")), None) \
+        or (sd["doc_kind"] or "").replace("의무기록 묶음(", "").rstrip(")") or "질병명 미상"
+    kcd = next((b["fields"].get("kcd") for b in blocks if b["fields"].get("kcd")), None)
+    full = sd.get("raw_text") or ""
+    ctx = []  # 심의내용 문구 — 분과 라우팅 키워드 포함되게 조립
+    if "고엽제" in full:
+        ctx.append("고엽제후유(의)증")
+    if "사망" in (sd.get("person") or "") or full.count("사망") > 3:
+        ctx.append("상이사망")
+    review_content = f"{disease} {' '.join(ctx)} 국가유공자 요건 해당 여부".strip()
+    sub_no, _prof = resolve([kcd] if kcd else None, review_content)
+
+    cur.execute(
+        """INSERT INTO application(recv_no, applicant, birth_year, duty_type, is_death,
+           review_content, subcommittee, status, apply_story, aftermath, apply_kind, is_real)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,'접수',%s,%s,'신규',true) RETURNING app_id""",
+        (recv_no, sd["person"] or "성명미상",
+         int(sd["reg_no"][:2]) + 1900 if sd.get("reg_no") else None,
+         "병사", "상이사망" in ctx, review_content, sub_no,
+         f"실데이터 의무기록 묶음({sd['hospital'] or '기관미상'}, 하위문서 {len(blocks)}건) OCR 적재분. "
+         f"신분·발병 경위는 원문 대조 확인 필요.",
+         f"주요 서식: {', '.join(dict.fromkeys(b['doc'] for b in blocks[:8]))}"))
+    app_id = cur.fetchone()["app_id"]
+
+    grade = next((b["fields"].get("grade") for b in blocks if b["fields"].get("grade")), None)
+    cur.execute(
+        """INSERT INTO disability(app_id, name, body_side, kcd_code, onset_ym,
+           onset_story, fact_date, fact_place, fact_first_dx)
+           VALUES (%s,%s,NULL,%s,%s,%s,NULL,NULL,%s) RETURNING dis_id""",
+        (app_id, disease, kcd,
+         next((b["fields"].get("date", "")[:7].replace("-", ".") for b in blocks
+               if b["fields"].get("date")), None),
+         f"실데이터 스캔 묶음 기반. 신체검사 소견 등급: {grade or '미기재'}", disease))
+    dis_id = cur.fetchone()["dis_id"]
+
+    for b in blocks:
+        cur.execute(
+            """INSERT INTO medical_record(dis_id, hospital, rec_type, period, rec_date,
+               chief, diagnosis, imaging, finding, chronic, surgery, by_applicant)
+               VALUES (%s,%s,%s,NULL,%s,NULL,%s,NULL,%s,NULL,NULL,'N')""",
+            (dis_id, sd["hospital"] or "보훈병원", b["doc"], b["fields"].get("date"),
+             b["fields"].get("disease"), b["excerpt"][:400]))
+
+    cur.execute("UPDATE scan_doc SET app_id=%s WHERE sd_id=%s", (app_id, sd["sd_id"]))
+    conn.commit()
+    return {"app_id": app_id, "dis_id": dis_id, "dis_name": disease, "subcommittee": sub_no,
+            "records": len(blocks), "is_real": True, "existed": False}
+
+
 def to_case(sd_id: int) -> dict:
     """scan_doc 1건을 application 사건으로 변환. 이미 변환된 경우 기존 app_id 반환."""
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
@@ -60,6 +121,9 @@ def to_case(sd_id: int) -> dict:
             exams = json.loads(exams)
         if not exams:
             return {"error": "파싱된 검사 블록이 없어 사건 변환 불가 — OCR 결과 확인 필요"}
+
+        if sd.get("is_real"):
+            return _to_case_real(cur, conn, sd, exams)
 
         # 대표 소견: 검사 블록에서 가장 자주 나온 Finding (없으면 Conclusion)
         counts = {}

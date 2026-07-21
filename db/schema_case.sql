@@ -239,3 +239,22 @@ CREATE TABLE IF NOT EXISTS scan_doc (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_scan_doc_person ON scan_doc(person, reg_no);
+
+-- ── 실데이터 표시 (260720): 시연용 표본과 구분 — 화면에 파란 '실데이터' 배지 ──
+ALTER TABLE scan_doc    ADD COLUMN IF NOT EXISTS is_real BOOLEAN DEFAULT false;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS is_real BOOLEAN DEFAULT false;
+
+-- ── 분과별 판단기준 룰 테이블 (260720): 정형화틀 v2.4 모듈 시트의 구조화 적재 ──
+-- 평문 프롬프트(subcommittee_modules)와 달리 기계 대조 가능: 필요서류 보유 대조,
+-- 계산 가능한 조건(MRI 3개월 등)은 services/rule_check.py 가 결정적으로 판정.
+CREATE TABLE IF NOT EXISTS judgment_rule (
+  jr_id           BIGSERIAL PRIMARY KEY,
+  subcommittee    TEXT NOT NULL,             -- 분과번호 1~5
+  disease_pattern TEXT NOT NULL,             -- 질환 매칭 정규식 (상이처명·심의내용 대상)
+  axis            TEXT NOT NULL,             -- 판단축 (예: 급성/진구성 분기)
+  condition       TEXT NOT NULL,             -- 조건 서술 (v2.4 원문 기반)
+  check_kind      TEXT NOT NULL DEFAULT 'manual',  -- auto(계산)/doc(서류대조)/manual(담당자)
+  required_docs   TEXT[],                    -- 필요서류 키워드 (보유 자료 대조용)
+  basis           TEXT                       -- 근거 (v2.4 시트 위치·의안번호 등)
+);
+CREATE INDEX IF NOT EXISTS idx_judgment_rule_sub ON judgment_rule(subcommittee);

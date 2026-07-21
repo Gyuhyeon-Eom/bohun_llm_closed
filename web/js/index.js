@@ -167,7 +167,7 @@ function renderCaseTable(){
       <td class="mono">${esc(c.recv_no)}</td>
       <td class="mut">-</td>
       <td class="mono">${esc(c.recv_no)}</td>
-      <td class="nm">${esc(c.applicant)}</td>
+      <td class="nm">${esc(c.applicant)}${c.is_real?' <span class="realtag">실데이터</span>':''}</td>
       <td class="mut">-</td>
       <td>요건심사</td>
       <td>${esc(c.review_content)}</td>
@@ -333,7 +333,7 @@ function wsRenderCaseTable(){
       <td class="mono">${esc(c.recv_no)}</td>
       <td class="mut">-</td>
       <td class="mono">${esc(c.recv_no)}</td>
-      <td class="nm">${esc(c.applicant)}</td>
+      <td class="nm">${esc(c.applicant)}${c.is_real?' <span class="realtag">실데이터</span>':''}</td>
       <td class="mut">-</td>
       <td>요건심사</td>
       <td>${esc(c.review_content)}</td>
@@ -692,7 +692,7 @@ function sec1(){
   const s = doc;
   $('paper').innerHTML = `<div class="crumb">1. 신청사항 › 가. 신청경위 · 나. 신청상이</div>
     <dl class="kv" style="margin-bottom:16px">
-      <dt>신청인</dt><dd>${esc(s.applicant)} (${s.birth_year}년생, ${esc(s.duty_type)})</dd>
+      <dt>신청인</dt><dd>${esc(s.applicant)}${s.is_real?' <span class="realtag">실데이터</span>':''} (${s.birth_year?s.birth_year+'년생, ':''}${esc(s.duty_type)})</dd>
       <dt>접수번호 / 차수</dt><dd class="mono">${esc(s.recv_no)} / ${s.round}차</dd>
       <dt>심의내용</dt><dd>${esc(s.review_content)}${s.is_death?' <span class="note">(사망 사건)</span>':''}</dd></dl>
     <h4>가. 신청경위 <span class="mut">(언제·어디서·무엇을·어떻게·왜)</span></h4>
@@ -759,6 +759,7 @@ function sec4(){
   const s = doc;
   $('paper').innerHTML = `<div class="crumb">4. 종합판단 › 상이처별 이원 판단(국가유공자/보훈보상) 선택 → 판단내용 생성 → 담당자 확정</div>
     <h4>가. 신청경위 요약</h4><div class="card soft">${esc(s.apply_story)}</div>
+    <div id="ruleCheckBox"></div>
     <h4>나·다. 판단 내용 및 결론</h4>` +
     s.disabilities.map(d=>{
       const c = d.conclusion || {};
@@ -802,6 +803,25 @@ function sec4(){
       return aiReview('부족','판단내용이 작성되지 않았습니다 — 이원 판단 선택 후 생성하십시오.');
     })() +
     `<p class="mutetxt" style="margin-top:14px">※ 판단시 고려: ①관계법령 ②내부인정기준 ③유사판례 ④의학정보 ⑤최근 유사 의결서 — 3장에 표시됨</p>`;
+  loadRuleCheck(s.app_id);
+}
+
+/* 분과 판단기준 자동대조 (정형화틀 v2.4) — 결정적 서류대조·계산, LLM 미사용 */
+async function loadRuleCheck(appId){
+  const box = $('ruleCheckBox'); if(!box) return;
+  try{
+    const r = await (await fetch(`/rule-check/${appId}`)).json();
+    if(!r.rules || !r.rules.length){ box.innerHTML=''; return; }
+    const st = {ok:['충족','yes'], lack:['자료 부족','no'], manual:['담당자 확인','hold']};
+    box.innerHTML = `<h4>분과 판단기준 자동대조 <span class="mut">(정형화틀 v2.4 · ${r.rules.length}개 축 — 참고용, 확정은 담당자)</span></h4>
+      <div class="tblcard" style="margin-bottom:16px"><table class="ds" style="min-width:680px"><thead><tr>
+        <th style="width:150px">판단축</th><th>조건 (v2.4 기준)</th><th style="width:110px">대조 결과</th><th style="width:220px">비고</th></tr></thead><tbody>${
+      r.rules.map(x=>`<tr>
+        <td class="ink">${esc(x.axis)}</td>
+        <td style="white-space:normal;font-size:12px">${esc(x.condition)}</td>
+        <td><span class="res ${st[x.status][1]}">${st[x.status][0]}</span></td>
+        <td style="white-space:normal;font-size:12px" class="mut">${esc(x.note||'')}</td></tr>`).join('')}</tbody></table></div>`;
+  }catch(e){ box.innerHTML=''; }
 }
 
 async function judge(disId){

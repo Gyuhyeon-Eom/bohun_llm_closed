@@ -209,6 +209,7 @@ def api_cases():
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("""SELECT a.app_id, a.recv_no, a.applicant, a.duty_type, a.is_death,
                               a.review_content, a.subcommittee, a.round, a.status, a.apply_kind, a.track,
+                              a.is_real,
                               array_agg(d.name || COALESCE('('||d.body_side||')','')) AS dis_names,
                               array_agg(d.kcd_code) AS kcd_codes
                        FROM application a LEFT JOIN disability d USING (app_id)
@@ -409,6 +410,12 @@ def api_grade_export(ga_id: int):
     fname, path = grade_export.export_xlsx(ga_id, emb=_emb)
     return FileResponse(path, filename=fname,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/rule-check/{app_id}")      # 분과 판단기준 자동대조 (정형화틀 v2.4, 결정적)
+def api_rule_check(app_id: int):
+    from services import rule_check
+    return rule_check.check(app_id)
 
 
 @app.get("/scan-docs")                # 스캔 의무기록 목록 (OCR 적재분)

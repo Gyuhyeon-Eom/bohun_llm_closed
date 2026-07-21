@@ -369,3 +369,6 @@ table.ds tbody tr{transition:background .15s}
 .loadline{font-size:12px;color:var(--slate-400);text-align:center;padding:2px 0 8px;max-width:680px;width:100%}
 .loadline.busy{color:var(--amber-600);font-weight:500}
 #rpanel .loadline{text-align:left;padding:6px 0 4px;font-size:11.5px}
+
+/* 실데이터 배지 — 시연용 표본과 구분 (파란 강조) */
+.realtag{display:inline-block;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;font-size:11px;font-weight:700;padding:1px 6px;margin-left:4px;vertical-align:1px}

@@ -135,6 +135,116 @@ def parse_blocks(texts):
     return blocks
 
 
+# ── 실데이터 OCR txt(기 OCR 완료 묶음) 파싱 ─────────────────────────
+# 신체검사 소견서·고엽제 검진결과통보서·진단서·판독지·외래기록 등이 한 파일에
+# 이어진 형태. 서식 제목 라인을 앵커로 하위문서를 분할하고 핵심 필드를 추출한다.
+DOC_TITLES = [
+    "신체검사 의사 소견서", "고엽제후유의증환자등검진결과통보서", "검진결과통보서",
+    "고엽제후유의증환자등", "진 단서", "진단서", "입 퇴 원 요 약", "입퇴원요약",
+    "외래재진기록", "외래기록", "외 래 기 록", "방사선 판독", "수술기록",
+    "PULMONARY FUNCTION TEST", "경과기록지", "답변서", "사실조사", "의무조사보고서",
+]
+RE_RRN = re.compile(r"\b(\d{6})[- ]?([1-4](?:\d{6}|\*{6}))\b")
+RE_KCD = re.compile(r"\b([A-Z]\d{2}(?:\.\d{1,2})?)\b")
+RE_GRADE = re.compile(r"(\d급\s?\d?항?\s?\d{4}호|\d-\d-\d{4}|\d급)")
+RE_ANYDATE = re.compile(r"(\d{4})[.\-/년\s]{1,2}(\d{1,2})[.\-/월\s]{1,2}(\d{1,2})")
+
+
+def _find_after(lines, i, pats, span=3):
+    """라벨 라인 i 다음 span줄 안에서 첫 비어있지 않은 값 줄."""
+    for ln in lines[i + 1:i + 1 + span]:
+        s = ln.strip()
+        if s and not any(p in s for p in pats):
+            return s
+    return None
+
+
+def parse_real_bundle(text):
+    """실데이터 OCR 묶음 → 하위문서 블록 + 핵심 필드."""
+    lines = text.splitlines()
+    anchors = []  # (줄번호, 서식제목)
+    for i, ln in enumerate(lines):
+        s = ln.strip().replace(" ", "")
+        for t in DOC_TITLES:
+            if s.startswith(t.replace(" ", "")) and len(s) < len(t.replace(" ", "")) + 12:
+                anchors.append((i, t.replace(" ", "") if t in ("진 단서", "입 퇴 원 요 약", "외 래 기 록") else t))
+                break
+    if not anchors:
+        anchors = [(0, "의무기록")]
+    blocks = []
+    for bi, (ai, title) in enumerate(anchors):
+        end = anchors[bi + 1][0] if bi + 1 < len(anchors) else len(lines)
+        seg = lines[ai:end]
+        body = "\n".join(seg)
+        f = {}
+        m = RE_RRN.search(body)
+        if m:
+            f["rrn"] = f"{m.group(1)}-{m.group(2)[0]}******"  # 저장 시점부터 마스킹
+        for i, ln in enumerate(seg):
+            s = ln.strip()
+            if ("상이처(질병명)" in s or "신청질병명" in s or "질병명" == s) and "disease" not in f:
+                v = _find_after(seg, i, ("질병명", "구분", "("))
+                if v:
+                    f["disease"] = v[:60]
+            elif "신검과목" in s and "exam_dept" not in f:
+                v = _find_after(seg, i, ("신검", "소속"))
+                if v:
+                    f["exam_dept"] = v[:20]
+        g = RE_GRADE.search(body)
+        if g:
+            f["grade"] = g.group(1)
+        k = RE_KCD.search(body)
+        if k and title in ("진단서", "진 단서".replace(" ", "")):
+            f["kcd"] = k.group(1)
+        d = RE_ANYDATE.search(body)
+        if d:
+            f["date"] = f"{d.group(1)}-{int(d.group(2)):02d}-{int(d.group(3)):02d}"
+        blocks.append({"doc": title, "line": ai + 1, "fields": f,
+                       "excerpt": " ".join(x.strip() for x in seg[:40] if x.strip())[:400]})
+    return blocks
+
+
+def ingest_real_txt(path):
+    """기 OCR 완료된 실데이터 txt 묶음 적재 (is_real=true)."""
+    import psycopg
+    from config.settings import PG_DSN
+
+    text = open(path, encoding="utf-8", errors="replace").read()
+    # 저장 전 주민번호 뒷자리 마스킹 (실데이터 원문 보호 — 원본 파일은 별도 보존)
+    masked = RE_RRN.sub(lambda m: f"{m.group(1)}-{m.group(2)[0]}******", text)
+    blocks = parse_real_bundle(masked)
+    lines = masked.splitlines()
+    person = None
+    for i, ln in enumerate(lines[:80]):
+        if "성명" in ln:
+            v = _find_after(lines, i, ("성명", "주민", "번호"))
+            if v and re.fullmatch(r"[가-힣.\s]{2,8}", v):
+                person = v.replace(" ", "").lstrip("고.").strip(".")
+                break
+    m = RE_RRN.search(masked)
+    disease = next((b["fields"].get("disease") for b in blocks if b["fields"].get("disease")), None)
+
+    os.makedirs(SCAN_DIR, exist_ok=True)
+    fname = os.path.basename(path)
+    dest = os.path.join(SCAN_DIR, fname)
+    if os.path.abspath(path) != os.path.abspath(dest):
+        shutil.copy2(path, dest)
+
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM scan_doc WHERE file_name=%s", (fname,))
+        cur.execute(
+            "INSERT INTO scan_doc(reg_no, person, sex_age, hospital, doc_kind, file_name,"
+            " orig_path, pages, ocr_used, raw_text, exams, is_real)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,true,%s,%s,true) RETURNING sd_id",
+            (m.group(1) if m else None, person, None,
+             next((h for h in ("부산보훈병원", "중앙보훈병원", "보훈병원") if h in masked), None),
+             f"의무기록 묶음({disease or '실데이터'})", fname, dest, len(blocks),
+             masked, json.dumps(blocks, ensure_ascii=False)))
+        sd_id = cur.fetchone()[0]
+        conn.commit()
+    return sd_id, person, disease, len(blocks)
+
+
 def parse_header(texts):
     head = "\n".join(texts[0].splitlines()[:12])
     reg = RE_REG.search(head)
@@ -191,16 +301,21 @@ def main():
     files = list(args.files)
     if args.dir:
         files += sorted(os.path.join(args.dir, f) for f in os.listdir(args.dir)
-                        if f.lower().endswith(".pdf"))
+                        if f.lower().endswith((".pdf", ".txt")))
     if not files:
-        ap.error("PDF 파일 또는 --dir 폴더를 지정하세요")
+        ap.error("PDF/txt 파일 또는 --dir 폴더를 지정하세요")
 
     ok = 0
     for f in files:
         try:
-            sd_id, head, nblk, ocr = ingest(f, args.dpi)
-            print(f"[{sd_id}] {os.path.basename(f)} → {head['person']}({head['reg_no']}) "
-                  f"{head['doc_kind']} 검사 {nblk}건 {'OCR' if ocr else '텍스트층'}")
+            if f.lower().endswith(".txt"):  # 기 OCR 완료된 실데이터 묶음
+                sd_id, person, disease, nblk = ingest_real_txt(f)
+                print(f"[{sd_id}] {os.path.basename(f)} → {person} [실데이터] "
+                      f"{disease or ''} 하위문서 {nblk}건")
+            else:
+                sd_id, head, nblk, ocr = ingest(f, args.dpi)
+                print(f"[{sd_id}] {os.path.basename(f)} → {head['person']}({head['reg_no']}) "
+                      f"{head['doc_kind']} 검사 {nblk}건 {'OCR' if ocr else '텍스트층'}")
             ok += 1
         except Exception as e:
             print(f"실패: {f} — {e}", file=sys.stderr)
