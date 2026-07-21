@@ -22,6 +22,14 @@ def answer(question: str, llm: LLMClient, emb, doc_type: str | None = None,
         return sp.split("#", 1)[1] if "#" in sp else sp.replace("\\", "/").rsplit("/", 1)[-1]
     context = "\n---\n".join(
         f"[{_label(h)} p.{h['page_no']}] {h['content'][:800]}" for h in hits) or "(검색 결과 없음)"
+    # 판단기준 그래프 근거 (질환→판단축→필요서류 멀티홉, 결정적) — v2.4 룰 그래프
+    try:
+        from core.graph import rule_facts
+        facts = rule_facts(question)
+        if facts:
+            context = "[판단기준 그래프 — 정형화틀 v2.4]\n" + "\n".join(facts) + "\n---\n" + context
+    except Exception:
+        pass  # 그래프 미적재 환경에서도 챗봇은 동작
     hist = "\n".join(
         f"{'담당자' if m.get('role') == 'user' else 'AI'}: {str(m.get('text', ''))[:300]}"
         for m in (history or [])[-6:]) or "(없음)"

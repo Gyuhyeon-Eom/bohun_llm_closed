@@ -10,3 +10,4 @@ pypdf              # scripts/extract_pdf_corpus.py (페이지 보존 PDF 추출)
 pymupdf            # scripts/ocr_ingest_scans.py (스캔 PDF 렌더링·텍스트층 추출)
 pytesseract        # scripts/ocr_ingest_scans.py (OCR — 시스템에 tesseract-ocr+kor 필요)
 pillow             # OCR 이미지 처리
+pytest             # tests/ 회귀 스위트 (개발용 — 운영 서버 필수 아님)

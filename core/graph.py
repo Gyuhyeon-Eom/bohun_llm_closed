@@ -55,3 +55,44 @@ def rule_conflicts() -> list[dict]:
         cur.execute(sql)
         cols = [c.name for c in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def rule_facts(text: str, n: int = 4) -> list[str]:
+    """질문·상병명 텍스트에 걸리는 판단기준 그래프 경로 (질환→판단축→필요서류·근거).
+
+    judgment_rule 파생 그래프(jr_*, scripts/build_rule_graph.py)를 결정적으로 탐색해
+    챗봇 컨텍스트·화면에 근거 라인으로 제공한다. LLM 미사용 — 그래프가 곧 출처."""
+    import re
+    sql = """
+    SELECT s.name AS sub, d.key AS pattern, a.name AS axis,
+           a.meta->>'condition' AS condition, a.meta->>'basis' AS basis,
+           array_remove(array_agg(doc.key), NULL) AS docs
+    FROM kg_nodes d
+    JOIN kg_edges e1 ON e1.dst = d.node_id AND e1.etype = 'HAS_DISEASE'
+    JOIN kg_nodes s  ON s.node_id = e1.src
+    JOIN kg_edges e2 ON e2.src = d.node_id AND e2.etype = 'JUDGED_BY'
+    JOIN kg_nodes a  ON a.node_id = e2.dst
+    LEFT JOIN kg_edges e3 ON e3.src = a.node_id AND e3.etype = 'REQUIRES'
+    LEFT JOIN kg_nodes doc ON doc.node_id = e3.dst
+    WHERE d.ntype = 'jr_disease'
+    GROUP BY 1,2,3,4,5
+    """
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        rows = cur.fetchall()
+    out = []
+    for sub, pattern, axis, cond, basis, docs in rows:
+        try:
+            if not re.search(pattern, text):
+                continue
+        except re.error:
+            continue
+        seg = f"〔{sub}·{axis}〕 {cond}"
+        if docs:
+            seg += f" (필요서류: {', '.join(docs)})"
+        if basis:
+            seg += f" [근거: {basis}]"
+        out.append(seg)
+        if len(out) >= n:
+            break
+    return out
