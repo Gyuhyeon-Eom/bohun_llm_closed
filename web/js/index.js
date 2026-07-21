@@ -216,7 +216,7 @@ async function enterCase(id){
   doc = d;
   tab='report'; curSec=0; panel='ai';
   visitedSecs = new Set(); ckState = (doc.checklist||[]).map(()=>false);
-  editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; ckCollapsed = true;  // 진입 시에도 접힘 유지
+  editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; ckCollapsed = true; s3Modal = null;  // 진입 시에도 접힘 유지
   gv = {mode:'list', ga:null, tab:'info', diseaseInput:'', part:null, pred:null, predLoading:false, modal:null, predSel:0};
   logEvent('AI 자동생성', '공통뼈대 1~4장 자료 패키지 조립 (병적·의무기록·법령·분과기준)');
   $('gnav-back').innerHTML = icon('IconChevronLeft', 18);
@@ -790,28 +790,18 @@ function sec3(){
     <h4>가. 관련법령 <span class="mut">(신분 기준 자동 결정 · 원문 발췌 RAG)</span></h4>` +
     s.laws.map(l=>`<div class="card"><div class="t mono" style="font-size:12px">${esc(l.clause)}</div>
       ${l.passage?esc(l.passage):'<span class="mutetxt">원문 미적재 — scripts/ingest_laws.py 실행 필요</span>'}</div>`).join('') +
-    `<h4>나. 본 건 판단의 전제 — 판례 <span class="mut">(법원 판례 RAG — 0721 회의 반영)</span></h4>` +
-    (s.disabilities.some(d=>(d.precedents||[]).length)
-      ? s.disabilities.map(d=>(d.precedents||[]).map(p=>`<div class="card soft"><div class="t">${esc(d.name)}</div>
-          ${esc(p.content)} <span class="mono" style="font-size:11px;color:var(--slate-400)">(${esc(p.source||'판례')})</span></div>`).join('')).join('')
-      : '<div class="mutetxt" style="margin:6px 0 14px">판례 미적재 — 공개 판례 수집 후 scripts/ingest_precedents.py 실행 시 자동 표시됩니다.</div>') +
-    `<h4>나. 본 건 판단의 전제 — 유사사례 <span class="mut">(부적절 사례 제외·직접 찾은 사례 추가 가능 — 선별 결과가 AI 사전판단·판단문 생성에 반영)</span></h4>` +
-    s.disabilities.map(d=>`
-      <div style="font-weight:700;font-size:13px;margin:8px 0 4px">${esc(d.name)}
-        <button class="btn outline sm" style="margin-left:8px" onclick="resetPicks(${d.dis_id})">선별 초기화</button></div>
-      ${d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:10px;align-items:baseline">
-        <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
-        ${x.pick==='pin'?'<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★ 담당자 추가</span>':''}
-        <span style="flex:1">${x.summary?esc(String(x.summary)).slice(0,120):`과거사례 ${esc(String(x.case_id))}`}
-          <span class="mono" style="font-size:11px;color:var(--slate-400)"> ${(x.matched_codes||x.kcd_codes||[]).map(esc).join(', ')}</span>
-          ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}</span>
-        <button class="btn outline sm" onclick="pickSimilar(${d.dis_id},${x.case_id},'${x.pick==='pin'?'clear':'pin'}')">${x.pick==='pin'?'고정 해제':'★ 고정'}</button>
-        <button class="btn outline sm" onclick="pickSimilar(${d.dis_id},${x.case_id},'exclude')">제외</button></div>`).join('')
-        :'<div class="mutetxt" style="margin:6px 0">유사사례 없음 — 아래 검색으로 직접 추가할 수 있습니다</div>'}
-      <div style="display:flex;gap:6px;margin:8px 0 4px">
-        <input id="simq${d.dis_id}" placeholder="사례 검색 후 추가 (요약문 키워드 또는 KCD 코드)" style="flex:1;padding:6px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')searchSimilar(${d.dis_id})">
-        <button class="btn outline sm" onclick="searchSimilar(${d.dis_id})">검색</button></div>
-      <div id="simres${d.dis_id}" style="margin-bottom:14px"></div>`).join('') +
+    (function(){  // 나. 본 건 판단의 전제 — 요약 버튼 + 팝업 (0721 피드백: 가시성)
+      const nPrec = s.disabilities.reduce((a,d)=>a+(d.precedents||[]).length,0);
+      const allSim = s.disabilities.flatMap(d=>d.similar||[]);
+      const yes = allSim.filter(x=>x.decision==='해당').length, no = allSim.filter(x=>x.decision==='비해당').length;
+      const pin = allSim.filter(x=>x.pick==='pin').length;
+      return `<h4>나. 본 건 판단의 전제 <span class="mut">(판례·유사사례 — 클릭하면 팝업으로 열람·선별)</span></h4>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn outline" onclick="openS3Modal('prec')">${icon('IconScale',14)} 판례 <b style="margin:0 2px">${nPrec}</b>건 보기</button>
+        <button class="btn outline" onclick="openS3Modal('sim')">${icon('IconHistory',14)} 유사사례 <b style="margin:0 2px">${allSim.length}</b>건
+          <span class="res yes" style="margin-left:4px">해당 ${yes}</span><span class="res no">비해당 ${no}</span>${pin?`<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★${pin}</span>`:''}
+          — 선별</button></div>`;
+    })() +
     `<h4>다. 의학정보·분과 판단기준 <span class="mut">(${esc(s.subcommittee_info.name)} 매뉴얼 RAG)</span></h4>` +
     s.disabilities.map(d=>d.criteria.map(c=>`<div class="card soft"><div class="t">${esc(d.name)}</div>
       ${esc(c.content).slice(0,320)}… <span class="mono" style="font-size:11px;color:var(--slate-400)">(${esc(c.source)})</span></div>`).join('')).join('') +
@@ -821,8 +811,54 @@ function sec3(){
       const nc = s.disabilities.reduce((a,d)=>a+d.similar.filter(x=>x.decision==='비해당').length,0);
       if(nc) return aiReview('미흡',`동일 상이처 과거 비해당 판정 ${nc}건이 있습니다 — 본 건과의 사실관계 차이 검토가 필요합니다.`);
       return aiReview('완료','관계법령 조항과 분과 판단기준 대조가 완료되었습니다.');
-    })();
+    })() + s3ModalHtml();
 }
+
+/* ── 3장 판례·유사사례 팝업 (가시성 개선 — 0721 피드백) ── */
+let s3Modal = null;   // null | 'prec' | 'sim'
+function openS3Modal(t){ s3Modal = t; showSec(curSec); }
+function closeS3Modal(){ s3Modal = null; showSec(curSec); }
+function s3ModalHtml(){
+  if(!s3Modal || !doc) return '';
+  const s = doc;
+  let body = '';
+  if(s3Modal === 'prec'){
+    const any = s.disabilities.some(d=>(d.precedents||[]).length);
+    body = any ? s.disabilities.map(d=>(d.precedents||[]).map(p=>`
+        <div class="card soft"><div class="t">${esc(d.name)}</div>
+          <div style="line-height:22px">${esc(p.content)}</div>
+          <span class="mono" style="font-size:11px;color:var(--slate-400)">(${esc(p.source||'판례')})</span></div>`).join('')).join('')
+      : `<div class="mutetxt" style="line-height:22px">판례가 아직 적재되지 않았습니다.<br>
+         국가법령정보센터·대법원 종합법률정보의 공개 판례를 수집해<br>
+         <span class="mono">data/precedents/*.json</span> 으로 저장 후 <span class="mono">scripts/ingest_precedents.py</span> 를 실행하면<br>
+         이 팝업과 판단문 생성 자료에 자동 반영됩니다.</div>`;
+  }else{
+    body = s.disabilities.map(d=>`
+      <div style="font-weight:700;font-size:13px;margin:10px 0 6px">${esc(d.name)}
+        <button class="btn outline sm" style="margin-left:8px" onclick="resetPicks(${d.dis_id})">선별 초기화</button></div>
+      ${d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:10px;align-items:baseline">
+        <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
+        ${x.pick==='pin'?'<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★ 담당자 추가</span>':''}
+        <span style="flex:1">${x.summary?esc(String(x.summary)).slice(0,140):`과거사례 ${esc(String(x.case_id))}`}
+          <span class="mono" style="font-size:11px;color:var(--slate-400)"> ${(x.matched_codes||x.kcd_codes||[]).map(esc).join(', ')}</span>
+          ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}</span>
+        <button class="btn outline sm" onclick="pickSimilar(${d.dis_id},${x.case_id},'${x.pick==='pin'?'clear':'pin'}')">${x.pick==='pin'?'고정 해제':'★ 고정'}</button>
+        <button class="btn outline sm" onclick="pickSimilar(${d.dis_id},${x.case_id},'exclude')">제외</button></div>`).join('')
+        :'<div class="mutetxt" style="margin:6px 0">유사사례 없음 — 아래 검색으로 직접 추가할 수 있습니다</div>'}
+      <div style="display:flex;gap:6px;margin:8px 0 4px">
+        <input id="simq${d.dis_id}" placeholder="사례 검색 후 추가 (요약문 키워드 또는 KCD 코드)" style="flex:1;padding:6px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')searchSimilar(${d.dis_id})">
+        <button class="btn outline sm" onclick="searchSimilar(${d.dis_id})">검색</button></div>
+      <div id="simres${d.dis_id}" style="margin-bottom:6px"></div>`).join('');
+  }
+  const title = s3Modal==='prec' ? '본 건 판단의 전제 — 판례'
+              : '본 건 판단의 전제 — 유사사례 선별 (제외·추가는 AI 사전판단·판단문 생성에 반영)';
+  return `<div class="gmodal-ov" onclick="if(event.target===this)closeS3Modal()">
+    <div class="gmodal" style="width:820px">
+      <div class="mh"><span>${title}</span>
+        <button class="backlink" style="margin:0" onclick="closeS3Modal()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+      ${body}</div></div>`;
+}
+
 /* ── 유사사례 선별 (260721 회의 ③): 제외/고정/검색추가 → 재조회 반영 ── */
 async function pickSimilar(disId, caseId, kind){
   let note = null;
