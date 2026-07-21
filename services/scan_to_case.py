@@ -93,11 +93,14 @@ def _to_case_real(cur, conn, sd, blocks) -> dict:
     dis_id = cur.fetchone()["dis_id"]
 
     for b in blocks:
+        d = b["fields"].get("date")
+        if d and not re.match(r"(19[4-9]\d|20[0-3]\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", d):
+            d = None  # OCR 잡음 날짜 방어 (구버전 적재분 포함)
         cur.execute(
             """INSERT INTO medical_record(dis_id, hospital, rec_type, period, rec_date,
                chief, diagnosis, imaging, finding, chronic, surgery, by_applicant)
                VALUES (%s,%s,%s,NULL,%s,NULL,%s,NULL,%s,NULL,NULL,'N')""",
-            (dis_id, sd["hospital"] or "보훈병원", b["doc"], b["fields"].get("date"),
+            (dis_id, sd["hospital"] or "보훈병원", b["doc"], d,
              b["fields"].get("disease"), b["excerpt"][:400]))
 
     cur.execute("UPDATE scan_doc SET app_id=%s WHERE sd_id=%s", (app_id, sd["sd_id"]))

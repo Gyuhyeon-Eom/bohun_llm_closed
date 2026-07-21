@@ -196,12 +196,45 @@ def parse_real_bundle(text):
         k = RE_KCD.search(body)
         if k and title in ("진단서", "진 단서".replace(" ", "")):
             f["kcd"] = k.group(1)
-        d = RE_ANYDATE.search(body)
-        if d:
-            f["date"] = f"{d.group(1)}-{int(d.group(2)):02d}-{int(d.group(3)):02d}"
+        for d in RE_ANYDATE.finditer(body):  # OCR 잡음 배제 — 유효 범위의 첫 날짜만
+            y, mo, dy = int(d.group(1)), int(d.group(2)), int(d.group(3))
+            if 1940 <= y <= 2035 and 1 <= mo <= 12 and 1 <= dy <= 31:
+                f["date"] = f"{y}-{mo:02d}-{dy:02d}"
+                break
         blocks.append({"doc": title, "line": ai + 1, "fields": f,
                        "excerpt": " ".join(x.strip() for x in seg[:40] if x.strip())[:400]})
     return blocks
+
+
+# 성명으로 볼 수 없는 라벨 단어들 (OCR 표 구조가 흐트러져 값 자리에 라벨이 오는 경우)
+_NOT_NAME = ("성별", "성명", "주민", "번호", "나이", "보훈", "관할", "신규", "재심")
+
+
+def _valid_name(v):
+    v = (v or "").replace(" ", "").lstrip("고.").lstrip("故").strip(".")
+    return v if (re.fullmatch(r"[가-힣]{2,4}", v) and v not in _NOT_NAME) else None
+
+
+def person_from_filename(fname):
+    """파일명에서 성명 폴백 — '오인규(441029)_...', '제출서류(故권영락)_...', '최승락88-근전도'.
+    macOS 파일명은 NFD(자모 분해)라 반드시 NFC 정규화 후 매칭."""
+    import unicodedata
+    s = unicodedata.normalize("NFC", fname)
+    m = re.search(r"[(\[]\s*故?\s*([가-힣]{2,4})\s*[)\]]", s)  # 괄호 안 (故권영락)
+    if m and _valid_name(m.group(1)):
+        return _valid_name(m.group(1))
+    m = re.match(r"^故?([가-힣]{2,4})", s)                      # 선두 한글 런
+    if m and _valid_name(m.group(1)) and m.group(1) not in ("제출서류", "진단서"):
+        return _valid_name(m.group(1))
+    return None
+
+
+def _valid_disease(v):
+    """질병명 값 검증 — 라벨 문구·번호 머리 제거, 라벨이면 무효."""
+    v = re.sub(r"^\d+[.)]\s*", "", (v or "").strip())
+    if len(v) < 2 or re.search(r"신체검사|의사\s*소견|소견서|질병명|상이처|구\s*분", v):
+        return None
+    return v[:60]
 
 
 def ingest_real_txt(path):
@@ -210,18 +243,26 @@ def ingest_real_txt(path):
     from config.settings import PG_DSN
 
     text = open(path, encoding="utf-8", errors="replace").read()
+    # 등록번호(생년 6자리)는 마스킹 전 원문에서 추출 — 마스킹 후엔 \b 경계가 깨져 매칭 불가
+    m = RE_RRN.search(text)
     # 저장 전 주민번호 뒷자리 마스킹 (실데이터 원문 보호 — 원본 파일은 별도 보존)
-    masked = RE_RRN.sub(lambda m: f"{m.group(1)}-{m.group(2)[0]}******", text)
+    masked = RE_RRN.sub(lambda mm: f"{mm.group(1)}-{mm.group(2)[0]}******", text)
     blocks = parse_real_bundle(masked)
+    for b in blocks:  # 질병명 라벨 오추출 정리
+        if "disease" in b["fields"]:
+            d = _valid_disease(b["fields"]["disease"])
+            if d:
+                b["fields"]["disease"] = d
+            else:
+                del b["fields"]["disease"]
     lines = masked.splitlines()
     person = None
     for i, ln in enumerate(lines[:80]):
         if "성명" in ln:
-            v = _find_after(lines, i, ("성명", "주민", "번호"))
-            if v and re.fullmatch(r"[가-힣.\s]{2,8}", v):
-                person = v.replace(" ", "").lstrip("고.").strip(".")
+            person = _valid_name(_find_after(lines, i, ("성명", "주민", "번호")))
+            if person:
                 break
-    m = RE_RRN.search(masked)
+    person = person or person_from_filename(os.path.basename(path))
     disease = next((b["fields"].get("disease") for b in blocks if b["fields"].get("disease")), None)
 
     os.makedirs(SCAN_DIR, exist_ok=True)
