@@ -262,3 +262,18 @@ CREATE INDEX IF NOT EXISTS idx_judgment_rule_sub ON judgment_rule(subcommittee);
 -- ── 실데이터 스캔 → 상이등급 안건 연결 (260721): 신검 서류는 등급심사 흐름으로 ──
 ALTER TABLE grade_agenda ADD COLUMN IF NOT EXISTS is_real BOOLEAN DEFAULT false;
 ALTER TABLE scan_doc     ADD COLUMN IF NOT EXISTS ga_id   BIGINT;   -- 등급 안건 변환 시 연결
+
+-- ── 유사사례 커스터마이징 (260721 회의 ③): 담당자 제외/추가(고정)·가중치·사유 ──
+-- scope='case' 요건심사(app_id+dis_id, cases.case_id) / scope='grade' 등급심사(ga_id, grade_case.gc_id)
+CREATE TABLE IF NOT EXISTS similar_pick (
+  sp_id      BIGSERIAL PRIMARY KEY,
+  scope      TEXT NOT NULL,
+  app_id     BIGINT, dis_id BIGINT, ga_id BIGINT,
+  case_id    BIGINT NOT NULL,
+  kind       TEXT NOT NULL,                 -- exclude(제외) | pin(추가·고정)
+  weight     REAL DEFAULT 1.0,              -- pin 정렬 가중치 (클수록 앞)
+  note       TEXT,                          -- 사유 (감사 추적)
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_similar_pick_key ON similar_pick
+  (scope, COALESCE(app_id,0), COALESCE(dis_id,0), COALESCE(ga_id,0), case_id);

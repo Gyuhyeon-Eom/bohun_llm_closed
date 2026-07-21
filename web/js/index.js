@@ -635,13 +635,15 @@ function gradePredictBody(g){
         <span style="flex:1">${esc(c.description)}</span>
         <span class="mutetxt mono" style="white-space:nowrap">부합도 ${c.similarity}</span></div>`).join('')}` : '';
     const sim = (r.similar&&r.similar.length) ? `
-      <h4>유사 상이등급 관련 정보 · 유사 상이등급 조회</h4>
+      <h4>유사 상이등급 관련 정보 · 유사 상이등급 조회 <span class="mut">(제외·고정 선별 가능 — 참고용)</span></h4>
       <div class="tblcard"><table class="ds" style="min-width:0"><thead><tr>
-        <th>접수번호</th><th>회의일자</th><th>상병명</th><th>상이등급</th><th style="width:100px"></th></tr></thead>
+        <th>접수번호</th><th>회의일자</th><th>상병명</th><th>상이등급</th><th style="width:170px"></th></tr></thead>
         <tbody>${r.similar.map((c,i)=>`<tr style="cursor:default">
-          <td class="mono">${esc(c.recv_no)}</td><td class="mono">${esc(c.meeting_date)}</td>
+          <td class="mono">${esc(c.recv_no)}${c.pick==='pin'?' <span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★</span>':''}</td><td class="mono">${esc(c.meeting_date)}</td>
           <td>${esc(c.disease_name)}</td><td class="ink">${esc(c.grade)}</td>
-          <td><button class="backlink" style="margin:0;text-decoration:underline" onclick="gv.modal=${i};renderGradeDetail()">상세보기</button></td></tr>`).join('')}
+          <td style="white-space:nowrap"><button class="backlink" style="margin:0;text-decoration:underline" onclick="gv.modal=${i};renderGradeDetail()">상세</button>
+            <button class="backlink" style="margin:0 0 0 8px" onclick="pickGradeSimilar(${c.gc_id},'${c.pick==='pin'?'clear':'pin'}')">${c.pick==='pin'?'해제':'★고정'}</button>
+            <button class="backlink" style="margin:0 0 0 6px;color:var(--rose-600,#e11d48)" onclick="pickGradeSimilar(${c.gc_id},'exclude')">제외</button></td></tr>`).join('')}
         </tbody></table></div>` : '';
     right = `<div style="flex:1;min-width:280px">${crit}${sim}</div>`;
   }
@@ -653,7 +655,7 @@ async function runGradePredict(){
   gv.predLoading = true; gv.pred = null; renderGradeDetail();
   try{
     const res = await fetch('/grade-predict',{method:'POST',headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({disease_name:name, body_part:gv.part, n:5})});
+      body: JSON.stringify({disease_name:name, body_part:gv.part, n:5, ga_id: gv.ga?.ga_id||null})});
     gv.pred = res.ok ? await res.json() : {error:`서버 오류(${res.status})`};
     if(gv.pred.grade1===null && gv.pred.note) gv.pred = {error: gv.pred.note};
   }catch(e){ gv.pred = {error:'요청 실패 — API 서버 상태를 확인하세요'}; }
@@ -664,6 +666,15 @@ async function runGradePredict(){
       `${esc(name)} → ${esc(gv.pred.grade1||'')}`, null, true);
   }
 }
+async function pickGradeSimilar(gcId, kind){
+  let note = null;
+  if(kind==='exclude'){ note = prompt('제외 사유 (감사 추적용, 생략 가능)') || null; }
+  await fetch('/similar-picks',{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({scope:'grade', ga_id: gv.ga?.ga_id, case_id: gcId, kind, note})});
+  if(gv.ga) logGradeEvent(gv.ga.ga_id, 'AI예측', `유사사례 ${kind==='exclude'?'제외':kind==='pin'?'고정':'해제'}`, '담당자', `사례 ${gcId}`, null);
+  runGradePredict();  // 선별 반영 재예측
+}
+
 function gradeModal(){
   if(gv.modal===null || !gv.pred || !gv.pred.similar) return '';
   const c = gv.pred.similar[gv.modal]; if(!c) return '';
@@ -767,11 +778,23 @@ function sec3(){
     <h4>가. 관련법령 <span class="mut">(신분 기준 자동 결정 · 원문 발췌 RAG)</span></h4>` +
     s.laws.map(l=>`<div class="card"><div class="t mono" style="font-size:12px">${esc(l.clause)}</div>
       ${l.passage?esc(l.passage):'<span class="mutetxt">원문 미적재 — scripts/ingest_laws.py 실행 필요</span>'}</div>`).join('') +
-    `<h4>나. 본 건 판단의 전제 — 유사사례</h4>` +
-    s.disabilities.map(d=>d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:12px;align-items:baseline">
-      <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
-      <span>과거사례 ${esc(String(x.case_id))} — 일치 KCD <span class="mono">${(x.matched_codes||[]).map(esc).join(', ')}</span></span></div>`).join('')
-      :'<div class="mutetxt" style="margin:6px 0">유사사례 없음</div>').join('') +
+    `<h4>나. 본 건 판단의 전제 — 유사사례 <span class="mut">(부적절 사례 제외·직접 찾은 사례 추가 가능 — 선별 결과가 AI 사전판단·판단문 생성에 반영)</span></h4>` +
+    s.disabilities.map(d=>`
+      <div style="font-weight:700;font-size:13px;margin:8px 0 4px">${esc(d.name)}
+        <button class="btn outline sm" style="margin-left:8px" onclick="resetPicks(${d.dis_id})">선별 초기화</button></div>
+      ${d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:10px;align-items:baseline">
+        <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
+        ${x.pick==='pin'?'<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★ 담당자 추가</span>':''}
+        <span style="flex:1">${x.summary?esc(String(x.summary)).slice(0,120):`과거사례 ${esc(String(x.case_id))}`}
+          <span class="mono" style="font-size:11px;color:var(--slate-400)"> ${(x.matched_codes||x.kcd_codes||[]).map(esc).join(', ')}</span>
+          ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}</span>
+        <button class="btn outline sm" onclick="pickSimilar(${d.dis_id},${x.case_id},'${x.pick==='pin'?'clear':'pin'}')">${x.pick==='pin'?'고정 해제':'★ 고정'}</button>
+        <button class="btn outline sm" onclick="pickSimilar(${d.dis_id},${x.case_id},'exclude')">제외</button></div>`).join('')
+        :'<div class="mutetxt" style="margin:6px 0">유사사례 없음 — 아래 검색으로 직접 추가할 수 있습니다</div>'}
+      <div style="display:flex;gap:6px;margin:8px 0 4px">
+        <input id="simq${d.dis_id}" placeholder="사례 검색 후 추가 (요약문 키워드 또는 KCD 코드)" style="flex:1;padding:6px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')searchSimilar(${d.dis_id})">
+        <button class="btn outline sm" onclick="searchSimilar(${d.dis_id})">검색</button></div>
+      <div id="simres${d.dis_id}" style="margin-bottom:14px"></div>`).join('') +
     `<h4>다. 의학정보·분과 판단기준 <span class="mut">(${esc(s.subcommittee_info.name)} 매뉴얼 RAG)</span></h4>` +
     s.disabilities.map(d=>d.criteria.map(c=>`<div class="card soft"><div class="t">${esc(d.name)}</div>
       ${esc(c.content).slice(0,320)}… <span class="mono" style="font-size:11px;color:var(--slate-400)">(${esc(c.source)})</span></div>`).join('')).join('') +
@@ -783,6 +806,36 @@ function sec3(){
       return aiReview('완료','관계법령 조항과 분과 판단기준 대조가 완료되었습니다.');
     })();
 }
+/* ── 유사사례 선별 (260721 회의 ③): 제외/고정/검색추가 → 재조회 반영 ── */
+async function pickSimilar(disId, caseId, kind){
+  let note = null;
+  if(kind==='exclude'){ note = prompt('제외 사유 (감사 추적용, 생략 가능)') || null; }
+  await fetch('/similar-picks',{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({scope:'case', app_id:doc.app_id, dis_id:disId, case_id:caseId, kind, note})});
+  logEvent('담당자', `유사사례 ${kind==='exclude'?'제외':kind==='pin'?'추가·고정':'선별 해제'} (사례 ${caseId})`);
+  doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  showSec(curSec);
+}
+async function resetPicks(disId){
+  const picks = await (await fetch(`/similar-picks?scope=case&app_id=${doc.app_id}&dis_id=${disId}`)).json();
+  for(const p of picks)
+    await fetch('/similar-picks',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scope:'case', app_id:doc.app_id, dis_id:disId, case_id:p.case_id, kind:'clear'})});
+  doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  showSec(curSec);
+}
+async function searchSimilar(disId){
+  const q = ($('simq'+disId)?.value||'').trim(); if(!q) return;
+  const box = $('simres'+disId);
+  box.innerHTML = '<span class="loading mutetxt">사례 검색 중</span>';
+  const rows = await (await fetch(`/cases-search?q=${encodeURIComponent(q)}`)).json();
+  box.innerHTML = rows.length ? rows.map(c=>`<div class="card" style="display:flex;gap:10px;align-items:baseline">
+      <span class="res ${c.decision==='해당'?'yes':'no'}">${esc(c.decision||'')}</span>
+      <span style="flex:1">${esc(c.summary).slice(0,120)} <span class="mono" style="font-size:11px;color:var(--slate-400)">${(c.kcd_codes||[]).map(esc).join(', ')}</span></span>
+      <button class="btn outline sm" onclick="pickSimilar(${disId},${c.case_id},'pin')">★ 추가</button></div>`).join('')
+    : '<div class="mutetxt">검색 결과 없음</div>';
+}
+
 function sec4(){
   const s = doc;
   $('paper').innerHTML = `<div class="crumb">4. 종합판단 › 상이처별 이원 판단(국가유공자/보훈보상) 선택 → 판단내용 생성 → 담당자 확정</div>

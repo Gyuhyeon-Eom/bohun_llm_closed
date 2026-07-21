@@ -321,6 +321,38 @@ class GradePredictReq(BaseModel):
     disease_name: str
     body_part: str | None = None
     n: int = 5
+    ga_id: int | None = None   # 담당자 유사사례 선별 반영용
+
+
+class SimilarPickReq(BaseModel):
+    scope: str                 # case | grade
+    case_id: int
+    kind: str                  # exclude | pin | clear
+    app_id: int | None = None
+    dis_id: int | None = None
+    ga_id: int | None = None
+    weight: float = 1.0
+    note: str | None = None
+
+
+@app.post("/similar-picks")           # 유사사례 제외/추가·가중치 (260721 회의 ③)
+def api_similar_pick(req: SimilarPickReq):
+    from services import similar_pick
+    return similar_pick.set_pick(req.scope, req.case_id, req.kind, req.app_id,
+                                 req.dis_id, req.ga_id, req.weight, req.note)
+
+
+@app.get("/similar-picks")            # 현재 선별 상태 조회
+def api_similar_picks(scope: str, app_id: int | None = None,
+                      dis_id: int | None = None, ga_id: int | None = None):
+    from services import similar_pick
+    return similar_pick.get_picks(scope, app_id, dis_id, ga_id)
+
+
+@app.get("/cases-search")             # 위원 직접 추가용 사례 검색 (요약문·KCD)
+def api_cases_search(q: str, n: int = 10):
+    from services import similar_pick
+    return similar_pick.search_cases(q, n)
 
 
 @app.get("/grade-agendas")            # 상이등급심사 안건 목록 (화면 v0.4)
@@ -361,7 +393,7 @@ def api_grade_agenda(ga_id: int):
 
 @app.post("/grade-predict")           # AI 판정예측 (과거 등급사례 기반 참고 예측)
 def api_grade_predict(req: GradePredictReq):
-    return grade_predict.predict(req.disease_name, req.body_part, _emb, req.n)
+    return grade_predict.predict(req.disease_name, req.body_part, _emb, req.n, req.ga_id)
 
 
 @app.get("/grade-agendas/{ga_id}/log")   # 안건 작업로그 (DAG 노드·이벤트)

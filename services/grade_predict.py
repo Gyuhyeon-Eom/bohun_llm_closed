@@ -52,7 +52,7 @@ def _criteria(cur, query, vec, body_part, k):
 
 def _cases(cur, vec, body_part, k):
     cur.execute("""
-        SELECT recv_no, meeting_date::text AS meeting_date, disease_name, body_part, grade,
+        SELECT gc_id, recv_no, meeting_date::text AS meeting_date, disease_name, body_part, grade,
                order_text, opinion_text,
                round((1 - (name_embedding <=> %(v)s::vector))::numeric, 4) AS similarity
         FROM grade_case
@@ -61,11 +61,17 @@ def _cases(cur, vec, body_part, k):
     return cur.fetchall()
 
 
-def predict(disease_name: str, body_part: str | None, emb, n: int = 5) -> dict:
+def predict(disease_name: str, body_part: str | None, emb, n: int = 5,
+            ga_id: int | None = None) -> dict:
     vec = emb.encode([f"{body_part or ''} {disease_name}".strip()])[0]
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         crits = _criteria(cur, disease_name, vec, body_part, 6)
         cases = _cases(cur, vec, body_part, n)
+    if ga_id:  # 안건 단위 담당자 선별(제외/고정) 반영 — 260721 회의 ③ (등급 화면 동일 적용)
+        from services import similar_pick as _sp
+        picks = _sp.get_picks("grade", ga_id=ga_id)
+        if picks:
+            cases = _sp.apply_picks(cases, picks, "gc_id", _sp.fetch_grade_cases)
 
     if not crits:
         if not cases:

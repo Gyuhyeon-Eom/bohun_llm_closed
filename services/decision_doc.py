@@ -76,8 +76,11 @@ def build_doc(app_id: int, emb) -> dict | None:
         d["criteria"] = [{"content": h["content"][:500], "source": sub["manual"]}
                          for h in hits
                          if any(t in h["content"] for t in toks)][:2]
-        # 3.나 유사사례 (그래프)
-        d["similar"] = cases_by_kcd([d["kcd_code"]], n=3) if d["kcd_code"] else []
+        # 3.나 유사사례 (그래프) + 담당자 선별(제외/추가·가중치 — 260721 회의 ③) 반영
+        from services import similar_pick as _sp
+        sims = cases_by_kcd([d["kcd_code"]], n=3) if d["kcd_code"] else []
+        picks = _sp.get_picks("case", app_id=app_id, dis_id=d["dis_id"])
+        d["similar"] = _sp.apply_picks(sims, picks, "case_id", _sp.fetch_cases) if picks else sims
         d["conclusion"] = app["conclusions"].get(d["dis_id"])
         # 4.나 AI 사전 판단: 사건 자료(OCR)·유사사례 기반 두 축 예측 (담당자 확인·수정 전 추천값)
         d["predicted"] = _predict_axes(app, d)
@@ -160,6 +163,15 @@ def _dossier(app: dict, d: dict) -> str:
         lines.append(f"휴가내역: {s['leave_note']}")
     if s.get("overtime"):
         lines.append(f"초과근무·특별업무: {s['overtime']}")
+    # 유사사례(담당자 선별 반영분) — 판단문이 선별된 사례 기준으로 서술되도록 주입 (260721 회의 ③)
+    sims = (d.get("similar") or [])[:3]
+    if sims:
+        lines.append("과거 유사사례 (담당자 선별 반영 — 인정/비인정 구분 참고):")
+        for x in sims:
+            tag = "★담당자 추가" if x.get("pick") == "pin" else ""
+            desc = str(x.get("summary") or "").strip()[:150] \
+                or f"과거사례 {x.get('case_id')} (KCD {', '.join(x.get('matched_codes') or [])})"
+            lines.append(f"  - [{x.get('decision') or '판정미상'}]{tag} {desc}")
     odocs = [o for o in app.get("official_docs", [])
              if o["dis_id"] in (None, d["dis_id"])]
     if odocs:
