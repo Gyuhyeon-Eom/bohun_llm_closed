@@ -76,6 +76,12 @@ def build_doc(app_id: int, emb) -> dict | None:
         d["criteria"] = [{"content": h["content"][:500], "source": sub["manual"]}
                          for h in hits
                          if any(t in h["content"] for t in toks)][:2]
+        # 3.나 본 건 판단의 전제 — 판례 (0721 회의 ②: 적재 시 자동 포함, 미적재면 빈 목록)
+        pq = f"{d['name']} 국가유공자 요건 상당인과관계"
+        phits = hybrid_search(pq, emb.encode([pq])[0], top_k=2, doc_type="판례")
+        d["precedents"] = [{"content": h["content"][:400],
+                            "source": h["source_path"].split("#")[-1]} for h in phits]
+
         # 3.나 유사사례 (그래프) + 담당자 선별(제외/추가·가중치 — 260721 회의 ③) 반영
         from services import similar_pick as _sp
         sims = cases_by_kcd([d["kcd_code"]], n=3) if d["kcd_code"] else []
@@ -155,6 +161,8 @@ def _dossier(app: dict, d: dict) -> str:
     s = app.get("service") or {}
     lines = [f"신청인: {app['applicant']} ({app['duty_type']}, 심의차수 {app['round']}차)",
              f"신청경위: {app['apply_story']}",
+             *[f"재신청 이력{h.get('seq')}: {h.get('date')} {h.get('kind')} — {h.get('summary')}"
+               f" → {h.get('result')}" for h in (app.get("apply_history") or [])],
              f"현재 후유증: {app.get('aftermath') or '기재 없음'}",
              f"신청상이: {d['name']} ({d['body_side'] or '부위 표기 없음'}, KCD {d['kcd_code']}, 발병 {d['onset_ym']})",
              f"요건사실확인서: 상이연월일 {d['fact_date']} / 장소 {d['fact_place']} / 최초부상명 {d['fact_first_dx']}",
@@ -172,6 +180,11 @@ def _dossier(app: dict, d: dict) -> str:
             desc = str(x.get("summary") or "").strip()[:150] \
                 or f"과거사례 {x.get('case_id')} (KCD {', '.join(x.get('matched_codes') or [])})"
             lines.append(f"  - [{x.get('decision') or '판정미상'}]{tag} {desc}")
+    precs = (d.get("precedents") or [])[:2]
+    if precs:
+        lines.append("관련 판례 발췌 (논리 전개 참고):")
+        for p in precs:
+            lines.append(f"  - {p['content'][:200]}")
     odocs = [o for o in app.get("official_docs", [])
              if o["dis_id"] in (None, d["dis_id"])]
     if odocs:

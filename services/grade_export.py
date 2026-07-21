@@ -219,6 +219,11 @@ def export_xlsx(ga_id=None, emb=None):
         props = [_proposed(it, preds[k]) for k, it in enumerate(items)]
         total = _total_grade(props) or \
             ("등급기준미달" if any("미달" in (p or "") for p in props) else None)
+        # 0721 회의 ⑧: 종합판정(등급 상향 검토) 대상 = 7급 상이처 3개 이상일 때만
+        n7 = sum(1 for p in props if _severity(p) == 7)
+        if total and len(items) > 1:
+            total = f"{total}\n(종합판정 대상 — 7급 {n7}개)" if n7 >= 3 \
+                else f"{total}\n(종합판정 비대상)"
         n = len(items)
         def _bullets(it, key, mark, k):
             """상이처별 목록 칸 — 복수 상이처면 실물 양식처럼 [상이처명] 태그 줄로 시작."""

@@ -1066,6 +1066,19 @@ def main():
                 {**a, "is_death": a.get("is_death", False),
                  "apply_kind": a.get("apply_kind", "신규")})
             app_id = cur.fetchone()[0]
+            # 0721 회의 ①: 재신청·이의신청·재심의 사건은 신청경위 하위 이력(이력1, 이력2…) 생성
+            if a["apply_kind"] != "신규":
+                import json as _jh
+                base_y = 2020 + (idx % 4)
+                hist = [{"seq": 1, "date": f"{base_y}.0{1 + idx % 8}.1{idx % 9}", "kind": "신규",
+                         "summary": f"최초 신청 — {a['review_content'][:40]}",
+                         "result": "비해당(요건 미충족)" if a["apply_kind"] != "재심의" else "해당(등급기준미달)"}]
+                if a["apply_kind"] == "재심의":
+                    hist.append({"seq": 2, "date": f"{base_y + 2}.0{1 + idx % 8}.0{1 + idx % 9}",
+                                 "kind": "이의신청", "summary": "추가 의무기록 제출 후 이의신청",
+                                 "result": "기각(자료 불충분)"})
+                cur.execute("UPDATE application SET apply_history=%s WHERE app_id=%s",
+                            (_jh.dumps(hist, ensure_ascii=False), app_id))
             dis_ids = []
             for d in c["dis"]:
                 cur.execute(

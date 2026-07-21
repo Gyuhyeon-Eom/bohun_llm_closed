@@ -277,3 +277,8 @@ CREATE TABLE IF NOT EXISTS similar_pick (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_similar_pick_key ON similar_pick
   (scope, COALESCE(app_id,0), COALESCE(dis_id,0), COALESCE(ga_id,0), case_id);
+
+-- ── 0721 회의 ①: 신청경위 하위 재신청 이력 (이력1, 이력2 …) ──
+ALTER TABLE application ADD COLUMN IF NOT EXISTS apply_history JSONB;  -- [{seq,date,kind,summary,result}]
+-- ── 0721 회의 ⑦: 등급 안건 카테고리 (고엽제=보훈병원 신검 기반 / 상이=심사위원회 판단) ──
+ALTER TABLE grade_agenda ADD COLUMN IF NOT EXISTS category TEXT DEFAULT '상이';

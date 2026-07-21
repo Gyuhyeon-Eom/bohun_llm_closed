@@ -437,6 +437,7 @@ function renderGaList(){
       <td style="width:26px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" ${gaBatchSel.has(g.ga_id)?'checked':''} onchange="toggleGaBatch(${g.ga_id}, this.checked)" title="일괄 다운로드 선택"></td>
       <td class="mono">${esc(g.agenda_no)}</td>
       <td class="ink">${esc(g.applicant)}${g.is_real?' <span class="realtag">실데이터</span>':''}</td>
+      <td><span class="stepchip" style="${g.category==='고엽제'?'background:#fef3c7;color:#b45309':''}">${esc(g.category||'상이')}</span></td>
       <td class="ink" style="text-decoration:underline">${esc(g.body_part)}</td>
       <td>${esc(g.injury)}</td>
       <td class="mono" style="font-size:12px">${esc(g.grade_change)}</td>
@@ -447,7 +448,7 @@ function renderGaList(){
       <button id="gaBatchBtn" class="btn outline sm" style="margin-left:auto" ${gaBatchSel.size?'':'disabled'} onclick="gaBatchDownload()">${icon('IconDownload',13)} 심사표 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}</button></div>
     <div class="samplenote">※ 아래 안건은 실제 사례가 아닌, 심사의결서 정형화 틀을 참고해 생성한 <b>시연용 표본 데이터</b>입니다 (개인정보 미포함 · 실사례 연계 시 의결서 원문 매핑 예정)</div>
     <div class="tblcard"><table class="ds" style="min-width:760px"><thead><tr>
-      <th style="width:26px"></th><th>안건번호</th><th>성명</th><th>신체부위</th><th>상이처</th><th>상이등급(기존→재심의)</th><th>AI 판정근거 요약</th><th>상태</th>
+      <th style="width:26px"></th><th>안건번호</th><th>성명</th><th style="width:66px">구분</th><th>신체부위</th><th>상이처</th><th>상이등급(기존→재심의)</th><th>AI 판정근거 요약</th><th>상태</th>
     </tr></thead><tbody>${rows}</tbody></table>
     ${slice.length?'':`<div class="emptyrows">${icon('IconInbox',26,'color:var(--border-strong)')}${gradeAgendas.length?'조건에 맞는 안건이 없습니다.':'등록된 등급심사 안건이 없습니다 — 안건현황에서 시연용 안건을 생성하세요.'}</div>`}</div>`;
   renderPager('gaPager', page, totalPages, 'gotoGaPage');
@@ -468,7 +469,7 @@ function setGTab(t){
 function renderGradeDetail(){
   const g = gv.ga;
   const info = `<button class="backlink" onclick="gradeBack()">${icon('IconArrowLeft',14)} 목록으로</button>
-    <div class="ginfo">${g.is_real?'<span class="realtag" style="margin-right:8px">실데이터</span>':''}${[['안건번호',g.agenda_no],['성명',g.applicant],['접수번호',g.recv_no],['신청구분',g.apply_type]]
+    <div class="ginfo">${g.is_real?'<span class="realtag" style="margin-right:8px">실데이터</span>':''}${[['안건번호',g.agenda_no],['성명',g.applicant],['접수번호',g.recv_no],['신청구분',g.apply_type],['구분',g.category||'상이']]
       .map(([l,v])=>`<span><span class="l">${l}</span><span class="v ${l==='접수번호'?'mono':''}">${esc(v)}</span></span>`).join('')}</div>
     <div id="gradeDag">${gradeDagWidget(g)}</div>
     <div class="gtabs">
@@ -587,7 +588,8 @@ function gradeInfoBody(g){
     ${itemRows?`<h4>요건인정 상이처별 현황 <span class="mut">(상이처별 직전등급·신검과목·신검등급 → 심사표에서 상이처별 제안등급·종합 제안등급 산출)</span></h4>
     <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
       <th style="width:30px">#</th><th>요건인정 상이처</th><th>신체부위</th><th>직전등급</th><th>신검과목</th><th>신검등급</th></tr></thead>
-      <tbody>${itemRows}</tbody></table></div>`:''}
+      <tbody>${itemRows}</tbody></table></div>
+    <p class="mutetxt" style="margin:-10px 0 16px">※ 종합판정(등급 상향 검토) 대상 기준: 7급 상이처 3개 이상일 때만 — 그 외에는 상이처별 최고 등급으로 종합 제안 (요건심사 화면과 동일 규칙). 낮은 등급(7급 등) 상이처도 참고용으로 모두 표시됩니다.</p>`:''}
     ${g.onset_narrative?`<h4>상이 발생경위</h4><div class="card soft" style="line-height:22px">${esc(g.onset_narrative)}</div>`:''}
     ${tlRows?`<h4>의무기록 <span class="mut">(진료 시간순)</span></h4>
     <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
@@ -736,6 +738,16 @@ function sec1(){
       <dt>심의내용</dt><dd>${esc(s.review_content)}${s.is_death?' <span class="note">(사망 사건)</span>':''}</dd></dl>
     <h4>가. 신청경위 <span class="mut">(언제·어디서·무엇을·어떻게·왜)</span></h4>
     <p class="lead">${esc(s.apply_story)}</p>
+    ${(s.apply_history&&s.apply_history.length)?`
+    <h4>재신청 이력 <span class="mut">(${esc(s.apply_kind)} 사건 — 과거 신청·처분 경과)</span></h4>
+    <div class="tblcard" style="margin-bottom:14px"><table class="ds" style="min-width:0"><thead><tr>
+      <th style="width:64px">구분</th><th style="width:90px">일자</th><th style="width:90px">신청유형</th><th>내용</th><th style="width:180px">처분 결과</th></tr></thead>
+      <tbody>${s.apply_history.map(h=>`<tr>
+        <td class="ink">이력${h.seq}</td><td class="mono">${esc(h.date)}</td>
+        <td><span class="stepchip">${esc(h.kind)}</span></td>
+        <td style="white-space:normal">${esc(h.summary)}</td>
+        <td><span class="res ${/해당\(|인정/.test(h.result||'')&&!/비해당/.test(h.result||'')?'yes':'no'}">${esc(h.result||'')}</span></td></tr>`).join('')}
+      </tbody></table></div>`:''}
     <h4>현재시점 후유증·합병증</h4><div class="card">${dash(s.aftermath)}</div>
     <h4>나. 신청상이</h4>` +
     s.disabilities.map(d=>`<div class="card"><div class="t">${esc(d.name)} <span class="mono">— ${dash(d.body_side)} · KCD ${esc(d.kcd_code)}</span></div>
@@ -778,6 +790,11 @@ function sec3(){
     <h4>가. 관련법령 <span class="mut">(신분 기준 자동 결정 · 원문 발췌 RAG)</span></h4>` +
     s.laws.map(l=>`<div class="card"><div class="t mono" style="font-size:12px">${esc(l.clause)}</div>
       ${l.passage?esc(l.passage):'<span class="mutetxt">원문 미적재 — scripts/ingest_laws.py 실행 필요</span>'}</div>`).join('') +
+    `<h4>나. 본 건 판단의 전제 — 판례 <span class="mut">(법원 판례 RAG — 0721 회의 반영)</span></h4>` +
+    (s.disabilities.some(d=>(d.precedents||[]).length)
+      ? s.disabilities.map(d=>(d.precedents||[]).map(p=>`<div class="card soft"><div class="t">${esc(d.name)}</div>
+          ${esc(p.content)} <span class="mono" style="font-size:11px;color:var(--slate-400)">(${esc(p.source||'판례')})</span></div>`).join('')).join('')
+      : '<div class="mutetxt" style="margin:6px 0 14px">판례 미적재 — 공개 판례 수집 후 scripts/ingest_precedents.py 실행 시 자동 표시됩니다.</div>') +
     `<h4>나. 본 건 판단의 전제 — 유사사례 <span class="mut">(부적절 사례 제외·직접 찾은 사례 추가 가능 — 선별 결과가 AI 사전판단·판단문 생성에 반영)</span></h4>` +
     s.disabilities.map(d=>`
       <div style="font-weight:700;font-size:13px;margin:8px 0 4px">${esc(d.name)}

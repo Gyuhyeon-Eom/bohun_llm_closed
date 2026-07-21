@@ -141,6 +141,9 @@ def to_grade(sd_id: int) -> dict:
 
         disease = first("disease") or (sd["doc_kind"] or "").replace("의무기록 묶음(", "").rstrip(")") or "질병명 미상"
         grade = first("grade")
+        # 0721 회의 ⑦: 신검등급 없이 장애진단서로 오는 건은 신검등급란에 '장애진단서' 명시
+        if not grade and any("장애진단서" in (b.get("doc") or "") for b in blocks):
+            grade = "장애진단서"
         exam_kind = first("exam_kind") or "재확인"
         exam_dept = first("exam_dept")
         opinion = first("opinion")
@@ -156,8 +159,8 @@ def to_grade(sd_id: int) -> dict:
                injury, base_date, exam_dept, grade_date, grade_change, ai_summary, status,
                review_items, note_items, progress, assignee, resident_no, target_type,
                yeu_injury, direct_review, exam_grade, specialist_opinion, related_docs,
-               injury_items, is_real)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true)
+               injury_items, is_real, category)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
                RETURNING ga_id""",
             (agenda_no, sd["person"] or "성명미상", f"RD{sd['reg_no'] or sd_id}",
              f"재심의({exam_kind})" if exam_kind in ("재심", "신규") else exam_kind,
@@ -173,7 +176,8 @@ def to_grade(sd_id: int) -> dict:
              json.dumps([{"injury": disease, "body_part": None, "prev_grade": grade,
                           "exam_dept": exam_dept, "exam_grade": grade, "opinion": opinion,
                           "review_items": None, "note_items": None, "related_docs": docs}],
-                        ensure_ascii=False)))
+                        ensure_ascii=False),
+             "고엽제" if "고엽제" in full else "상이"))
         ga_id = cur.fetchone()["ga_id"]
         cur.execute("UPDATE scan_doc SET ga_id=%s WHERE sd_id=%s", (ga_id, sd_id))
         conn.commit()
