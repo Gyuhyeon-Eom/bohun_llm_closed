@@ -218,14 +218,21 @@ def draft_judgment(app_id: int, dis_id: int, yeu_result: str, bosang_result: str
     module = module_for(app["subcommittee_info"]["no"])
     if module:
         criteria = f"{module}\n\n[분과 매뉴얼 발췌]\n{criteria}"
+    dossier = _dossier(app, d)
     body = _strip_markdown(llm.generate(
         "judgment", review_content=app["review_content"],
         subcommittee=app["subcommittee_info"]["name"],
         onset=f"{d['onset_ym']} {d['onset_story']}", dis_name=d["name"],
         yeu_clause=d["yeu_clause"], yeu_result=yeu_result,
         bosang_clause=d["bosang_clause"], bosang_result=bosang_result,
-        dossier=_dossier(app, d), criteria=criteria))
+        dossier=dossier, criteria=criteria))
     body = _strip_artifacts(body)
+    # v0.2 리플렉시온: 초안을 사건 자료와 대조 검증 - 환각·누락·결론 불일치만 수정
+    from core.reflexion import refine
+    verdict = (f"신청상이 '{d['name']}' — 국가유공자 축: {d['yeu_clause']} {yeu_result} / "
+               f"보훈보상 축: {d['bosang_clause']} {bosang_result}")
+    body, refl = refine(body, evidence=dossier, verdict=verdict, llm=llm,
+                        postprocess=lambda t: _strip_artifacts(_strip_markdown(t)))
     final = (f"신청상이 '{d['name']}'에 대하여 {d['yeu_clause']}에서 규정한 요건에 {yeu_result}, "
              f"{d['bosang_clause']}에서 규정한 요건에 {bosang_result}함.")
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
@@ -240,7 +247,7 @@ def draft_judgment(app_id: int, dis_id: int, yeu_result: str, bosang_result: str
                      d["bosang_clause"], bosang_result, body, final))
         cur.execute("UPDATE application SET status='심사중' WHERE app_id=%s AND status='접수'", (app_id,))
     return {"dis_id": dis_id, "body_text": body, "final_text": final,
-            "yeu_result": yeu_result, "bosang_result": bosang_result}
+            "yeu_result": yeu_result, "bosang_result": bosang_result, "reflexion": refl}
 
 
 def finalize(app_id: int, dis_id: int, body_text: str | None = None) -> dict:

@@ -48,6 +48,14 @@ RRF_K = 60
 RRF_DENSE_WEIGHT = float(os.getenv("RRF_DENSE_WEIGHT", "1.0"))
 RRF_SPARSE_WEIGHT = float(os.getenv("RRF_SPARSE_WEIGHT", "0.5"))
 
+# --- 에이전트 루프 (v0.2) ---
+# 챗봇 반복 검색: 1차 답변이 "확인되지 않습니다"면 질의를 재작성해 재검색 (0=비활성).
+#   로컬 7B 기준 재시도 1회당 응답시간이 약 2배 - 폐쇄망 성능에 따라 조정.
+CHAT_RETRY_MAX = int(os.getenv("CHAT_RETRY_MAX", "1"))
+# 문서 생성 리플렉시온: 검토서·의결서 초안을 근거 자료와 대조 검증 후 지적사항만 수정 (0=비활성).
+#   문서 생성은 대화형이 아니므로 지연 허용 폭이 큼 - 기본 1패스.
+REFLEXION_MAX_PASSES = int(os.getenv("REFLEXION_MAX_PASSES", "1"))
+
 # --- OCR LLM 검증 (ingestion/verifier.py) ---
 # 저신뢰 블록만 FabriX로 교정 - 160만 페이지 전수 LLM 투입은 토큰 비용상 비현실적
 VERIFY_CONF_THRESHOLD = 0.85  # TODO(확인): 외부 OCR 솔루션의 confidence 분포 확인 후 조정

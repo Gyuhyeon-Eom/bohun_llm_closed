@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>[프로토타입] 보훈심사 AI 지원 — 문서 접수 (OCR)</title>
+<link rel="stylesheet" href="/css/ocr.css">
+</head>
+<body>
+<div style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#7c2d12;color:#fff;font:600 12px/1.4 Pretendard,'Malgun Gothic',sans-serif;text-align:center;padding:6px 12px;opacity:.94">개발 검증용 프로토타입(목업) — 국가보훈부·보훈심사위원회의 공식 시스템이 아니며, 화면·문구·데이터는 시연 목적입니다</div>
+<div class="topbar">
+  <span class="brand">e보훈심사 AI지원시스템<span class="sub">문서 접수 (OCR)</span></span>
+  <span class="meta"><a href="/">← 안건현황</a></span>
+</div>
+
+<div class="wrap">
+  <div class="page-head"><h1>문서 접수 (OCR)</h1><span class="v">ocr v0.1</span></div>
+  <div class="page-desc">외부 OCR 솔루션이 산출한 <b>txt 묶음</b>을 적재합니다.
+    하위문서(소견서·진단서·판독지 등) 자동 분할 → 핵심 필드 추출 → <b>LLM 정규화</b> → <b>정리본(JSON·PDF)</b> → 사건·안건 변환 순서로 진행하며,
+    주민등록번호는 <b>저장 시점에 마스킹</b>됩니다.</div>
+
+  <!-- ═══ 업로드 ═══ -->
+  <div class="card">
+    <div class="sec-title">OCR 결과 업로드</div>
+    <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+      <b>txt 파일 선택</b> 또는 끌어오기 — 여러 개 가능
+      <span class="hint">스캔 PDF 직접 OCR은 서버에서 <code>scripts/ocr_ingest_scans.py</code> 실행</span>
+      <input type="file" id="file" hidden multiple accept=".txt">
+    </div>
+    <div id="upLog"></div>
+  </div>
+
+  <!-- ═══ 적재 목록 ═══ -->
+  <div class="card">
+    <div class="list-head">
+      <div class="sec-title" style="margin:0">적재된 스캔 문서</div>
+      <span class="cnt" id="cnt">불러오는 중</span>
+      <button class="btn btn-primary" style="margin-left:auto" onclick="toGradeAll()" id="allBtn">미변환 전체 → 상이등급 안건 일괄 변환</button>
+      <input id="q" placeholder="성명·파일명 검색" oninput="renderList()" style="max-width:220px">
+    </div>
+    <div id="listWrap"><div class="empty">불러오는 중…</div></div>
+  </div>
+
+  <!-- ═══ 상세 ═══ -->
+  <div class="card" id="detailCard" style="display:none">
+    <div class="list-head">
+      <div class="sec-title" style="margin:0" id="dTitle"></div>
+      <div class="actions">
+        <button class="btn btn-ghost" onclick="toggleClean()" id="cleanBtn">정리본 보기</button>
+        <button class="btn btn-ghost" onclick="toggleRaw()" id="rawBtn">원문(raw)</button>
+        <button class="btn btn-ghost" onclick="normalize(false)" id="normBtn">LLM 정규화</button>
+        <button class="btn btn-ghost" onclick="normalize(true)">재정규화</button>
+        <button class="btn btn-ghost" onclick="indexClean()" id="idxBtn">챗봇 검색 적재</button>
+        <button class="btn btn-primary" onclick="toCase()">요건심사 사건 변환</button>
+        <button class="btn btn-primary" onclick="toGrade()">상이등급 안건 변환</button>
+      </div>
+    </div>
+    <div class="dmeta" id="dMeta"></div>
+    <pre class="raw" id="dRaw" style="display:none"></pre>
+    <div id="dBlocks"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/js/ocr.js"></script>
+</body>
+</html>

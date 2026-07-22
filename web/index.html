@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>e보훈심사AI지원시스템 — 화면설계서 v0.5</title>
+<title>[프로토타입] 보훈심사 AI 지원 — 화면설계서 v0.5</title>
 <link rel="stylesheet" href="/css/index.css">
 </head>
 <body>
+<div style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#7c2d12;color:#fff;font:600 12px/1.4 Pretendard,'Malgun Gothic',sans-serif;text-align:center;padding:6px 12px;opacity:.94">개발 검증용 프로토타입(목업) — 국가보훈부·보훈심사위원회의 공식 시스템이 아니며, 화면·문구·데이터는 시연 목적입니다</div>
 
 <!-- 화면 A: 안건현황 — e통합보훈시스템 내 목록 (BNM-U00-0100) -->
 <div class="view on gnv" id="v-status">
@@ -45,6 +46,7 @@
         <div class="gfbtns"><button class="primary" onclick="casePage=1;renderCaseTable()">검색</button><button onclick="$('casesearch').value='';casePage=1;renderCaseTable()">초기화</button></div>
       </div>
       <div class="gactionbar" style="width: 100%; justify-content: end;">
+        <button onclick="openOcr()">문서접수(OCR)</button>
         <button class="primary" id="aiBtn" disabled onclick="enterCase(selId)">AI 심사</button>
         <button disabled>회송</button>
         <button disabled>요양/의료급여복지증정</button>
@@ -85,7 +87,8 @@
     <img src="./img/bohun_check.jpg" style="width: 120px; height: 30px;">
     <span class="brand">e보훈심사AI지원시스템</span>
     <div class="tabs" id="gnav-tabs"></div>
-    <button class="btn outline sm" style="margin-left:auto" onclick="openFeedback()" id="fb-btn-work"></button>
+    <button class="btn outline sm" style="margin-left:auto" onclick="openOcr()" id="ocr-btn-work"></button>
+    <button class="btn outline sm" onclick="openFeedback()" id="fb-btn-work"></button>
     <span class="case" id="gnav-case" style="margin-left:0"></span>
   </div>
   <div id="workbody"></div>

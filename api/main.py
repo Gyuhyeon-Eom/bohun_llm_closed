@@ -669,20 +669,48 @@ def api_scan_docs():
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("SELECT sd_id, reg_no, person, sex_age, hospital, doc_kind, file_name,"
                     " pages, ocr_used, jsonb_array_length(coalesce(exams,'[]'::jsonb)) AS n_exams,"
-                    " app_id, created_at FROM scan_doc ORDER BY sd_id")
+                    " (SELECT count(*) FROM jsonb_array_elements(coalesce(exams,'[]'::jsonb)) b"
+                    "   WHERE b ? 'norm') AS n_norm,"          # 정규화 완료 블록 수 (OCR 페이지 상태 칩)
+                    " app_id, is_real, created_at FROM scan_doc ORDER BY sd_id DESC")
         return cur.fetchall()
 
 
-@app.get("/scan-docs/{sd_id}")        # 스캔 문서 상세 (파싱된 검사 블록)
+@app.get("/scan-docs/{sd_id}")        # 스캔 문서 상세 (파싱된 검사 블록 + 원문)
 def api_scan_doc(sd_id: int):
     import psycopg
     from psycopg.rows import dict_row
     from config.settings import PG_DSN
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("SELECT sd_id, reg_no, person, sex_age, hospital, doc_kind, file_name,"
-                    " pages, ocr_used, exams, app_id FROM scan_doc WHERE sd_id=%s", (sd_id,))
+                    " pages, ocr_used, exams, app_id, is_real, raw_text, created_at"
+                    " FROM scan_doc WHERE sd_id=%s", (sd_id,))
         row = cur.fetchone()
         return row or {"error": "스캔 문서 없음"}
+
+
+class ScanUploadReq(BaseModel):
+    """OCR 완료 txt 업로드 — 브라우저가 파일을 읽어 text로 보냄 (IngestReq와 동일 방식).
+    저장 원문은 ingest_real_txt가 주민번호를 마스킹하며, 원본 파일은 data/originals/scans/에 보존."""
+    filename: str
+    text: str
+
+
+@app.post("/scan-docs/upload")        # OCR txt 업로드 → 하위문서 분할 파싱 → scan_doc 적재
+def api_scan_upload(req: ScanUploadReq):
+    import unicodedata
+    from scripts.ocr_ingest_scans import ingest_real_txt
+    fname = os.path.basename(unicodedata.normalize("NFC", req.filename)) or "업로드.txt"
+    if not fname.lower().endswith(".txt"):
+        return {"error": "txt 파일만 업로드 가능 (스캔 PDF는 scripts/ocr_ingest_scans.py 사용)"}
+    updir = Path("data") / "scans_txt"
+    updir.mkdir(parents=True, exist_ok=True)
+    path = updir / fname
+    path.write_text(req.text, encoding="utf-8")
+    try:
+        sd_id, person, disease, nblk = ingest_real_txt(str(path))
+    except Exception as e:
+        return {"error": f"적재 실패: {e}"}
+    return {"sd_id": sd_id, "person": person, "disease": disease, "blocks": nblk}
 
 
 @app.get("/scan-docs/{sd_id}/file")   # 스캔 원본 PDF (열람·다운로드)
@@ -695,7 +723,9 @@ def api_scan_doc_file(sd_id: int, dl: int = 0):
     if not row or not row[0] or not os.path.exists(row[0]):
         return {"error": "원본 파일 없음"}
     disp = "attachment" if dl else "inline"
-    return FileResponse(row[0], filename=row[1], media_type="application/pdf",
+    media = ("text/plain; charset=utf-8" if row[0].lower().endswith(".txt")
+             else "application/pdf")
+    return FileResponse(row[0], filename=row[1], media_type=media,
                         content_disposition_type=disp)
 
 
@@ -705,6 +735,26 @@ def api_scan_to_case(sd_id: int):
     return scan_to_case.to_case(sd_id)
 
 
+@app.post("/scan-docs/to-grade-all")      # 미변환 실데이터 전체 → 상이등급 안건 일괄 변환
+def api_scan_to_grade_all():
+    import psycopg
+    from config.settings import PG_DSN
+    from services import scan_to_case
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT sd_id, person FROM scan_doc WHERE is_real AND ga_id IS NULL ORDER BY sd_id")
+        targets = cur.fetchall()
+    done, skipped = [], []
+    for sd_id, person in targets:
+        try:
+            r = scan_to_case.to_grade(sd_id)
+            (skipped if "error" in r else done).append(
+                {"sd_id": sd_id, "person": person, **({"error": r["error"]} if "error" in r
+                 else {"ga_id": r["ga_id"], "agenda_no": r.get("agenda_no"), "existed": r.get("existed", False)})})
+        except Exception as e:
+            skipped.append({"sd_id": sd_id, "person": person, "error": str(e)[:120]})
+    return {"converted": len(done), "skipped": len(skipped), "done": done, "errors": skipped}
+
+
 @app.post("/scan-docs/{sd_id}/to-grade")  # 스캔 문서 → 상이등급 안건 변환 (신검 서류)
 def api_scan_to_grade(sd_id: int):
     from services import scan_to_case
@@ -712,9 +762,64 @@ def api_scan_to_grade(sd_id: int):
 
 
 @app.post("/scan-docs/{sd_id}/normalize")  # OCR 텍스트 LLM 정규화 (260721 회의 반영)
-def api_scan_normalize(sd_id: int, force: int = 0):
+def api_scan_normalize(sd_id: int, force: int = 0, limit: int | None = None):
+    # limit: 블록 단위 스텝 실행 — UI가 진행률(remaining)을 보며 반복 호출.
+    # 재정규화 UI는 force 대신 normalize-clear 후 스텝한다 (force+limit는 진행 불가 조합)
     from services import ocr_normalize
-    return ocr_normalize.normalize_scan(sd_id, force=bool(force))
+    return ocr_normalize.normalize_scan(sd_id, force=bool(force), limit=limit)
+
+
+@app.post("/scan-docs/{sd_id}/normalize-clear")  # 정규화 결과 제거 (재정규화 스텝 실행 준비)
+def api_scan_normalize_clear(sd_id: int):
+    from services import ocr_normalize
+    return ocr_normalize.clear_norms(sd_id)
+
+
+@app.post("/scan-docs/{sd_id}/index-clean")   # 정리본 → RAG 적재 (챗봇 검색 대상화)
+def api_scan_index_clean(sd_id: int):
+    from services import ocr_normalize
+    return ocr_normalize.index_clean(sd_id, _emb)
+
+
+@app.post("/scan-docs/index-clean-all")       # 실데이터 전체 정리본 일괄 RAG 적재
+def api_scan_index_clean_all():
+    import psycopg
+    from config.settings import PG_DSN
+    from services import ocr_normalize
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT sd_id FROM scan_doc WHERE is_real ORDER BY sd_id")
+        ids = [r[0] for r in cur.fetchall()]
+    done, errors = [], []
+    for sd_id in ids:
+        try:
+            r = ocr_normalize.index_clean(sd_id, _emb)
+            (errors if "error" in r else done).append({"sd_id": sd_id, **r})
+        except Exception as e:
+            errors.append({"sd_id": sd_id, "error": str(e)[:120]})
+    return {"indexed": sum(1 for d in done if not d.get("skipped")),
+            "skipped": sum(1 for d in done if d.get("skipped")),
+            "errors": errors}
+
+
+@app.get("/scan-docs/{sd_id}/clean")       # 정리본(JSON) — 정규화 결과의 열람용 결정적 조립
+def api_scan_clean(sd_id: int):
+    from services import ocr_normalize
+    return ocr_normalize.clean_document(sd_id) or {"error": "스캔 문서 없음"}
+
+
+@app.get("/scan-docs/{sd_id}/clean.pdf")   # 정리본(PDF) — 열람·출력용
+def api_scan_clean_pdf(sd_id: int, dl: int = 0):
+    from services import ocr_normalize
+    from services.decision_doc import _text_to_pdf
+    doc = ocr_normalize.clean_document(sd_id)
+    if not doc:
+        return {"error": "스캔 문서 없음"}
+    out = Path("data") / "clean_pdf"
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"scan_{sd_id}_clean.pdf"
+    _text_to_pdf(ocr_normalize.clean_text(doc), str(path))
+    return FileResponse(str(path), filename=f"정리본_{sd_id}.pdf", media_type="application/pdf",
+                        content_disposition_type="attachment" if dl else "inline")
 
 
 @app.get("/grade-agendas/{ga_id}/scan")   # 등급 안건에 연결된 스캔 원문·정규화 결과 (근거 추적)
@@ -764,6 +869,11 @@ def api_feedback_add(req: FeedbackReq):
         cur.execute("INSERT INTO feedback(author, content, parent_id) VALUES (%s,%s,%s) RETURNING fb_id",
                     (req.author.strip() or "익명", content[:2000], req.parent_id))
         return {"fb_id": cur.fetchone()[0]}
+
+
+@app.get("/ocr.html")                 # 문서 접수(OCR) 페이지 — 스캔 txt 업로드·파싱 검수·정규화
+def api_ocr_page():
+    return FileResponse(_WEB / "ocr.html")
 
 
 # ── 피드백 게시판 ──

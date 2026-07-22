@@ -34,3 +34,9 @@ data/originals/
 # 반입 수집물 (USB로 이동 — 리포에 넣지 않음)
 transfer_out/
 *.bundle
+
+# 실데이터(개인의료정보) — 깃 반입 금지
+*_OCR_*.txt
+data/scans_txt/
+data/clean_pdf/
+data/originals/

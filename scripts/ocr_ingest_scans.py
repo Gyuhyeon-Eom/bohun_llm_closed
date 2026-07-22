@@ -144,8 +144,16 @@ DOC_TITLES = [
     "외래재진기록", "외래기록", "외 래 기 록", "방사선 판독", "수술기록",
     "PULMONARY FUNCTION TEST", "경과기록지", "답변서", "사실조사", "의무조사보고서",
     "장애진단서",  # 0721 회의 ⑦: 장애진단서 유입 건은 신검등급란에 명시
+    # 0722 실데이터 23건 인벤토리 보강: 단일 판독지·제출서류 묶음이 "의무기록"으로
+    # 뭉치던 케이스 — 판독지 섹션 제목과 민원 서류 제목을 앵커에 추가
+    "영상검사결과",   # MRI·CT 판독지 (허승범·최성학 건)
+    "기능검사결과",   # 근전도 등 (최승락 건)
+    "소 견 서", "소견서",  # 병원 발행 소견서 단독 제출 (최임식 건)
+    "신청사유", "병상일지",  # 재심 제출서류 묶음 (故권영락 건)
 ]
-RE_RRN = re.compile(r"\b(\d{6})[- ]?([1-4](?:\d{6}|\*{6}))\b")
+# 구분자: OCR 원문에 "480603 - 1108611"처럼 대시 양옆 공백이 흔함 — 공백 1개씩 허용.
+# (\s*로 넓히면 줄바꿈 너머 "480603\n2026..."류 오탐 위험이 커져 딱 1칸까지만)
+RE_RRN = re.compile(r"\b(\d{6}) ?[-–]? ?([1-4](?:\d{6}|\*{6}))\b")
 RE_KCD = re.compile(r"\b([A-Z]\d{2}(?:\.\d{1,2})?)\b")
 RE_GRADE = re.compile(r"(\d급\s?\d?항?\s?\d{4}호|\d-\d-\d{4}|\d급)")
 RE_ANYDATE = re.compile(r"(\d{4})[.\-/년\s]{1,2}(\d{1,2})[.\-/월\s]{1,2}(\d{1,2})")
@@ -241,7 +249,7 @@ def person_from_filename(fname):
 def _valid_disease(v):
     """질병명 값 검증 — 라벨 문구·번호 머리 제거, 라벨이면 무효."""
     v = re.sub(r"^\d+[.)]\s*", "", (v or "").strip())
-    if len(v) < 2 or re.search(r"신체검사|의사\s*소견|소견서|질병명|상이처|구\s*분", v):
+    if len(v) < 2 or re.search(r"신체검사|의사\s*소견|소견서|질병명|상이처|구\s*분|요청사항|아래와\s*같이", v):
         return None
     return v[:60]
 
@@ -288,7 +296,9 @@ def ingest_real_txt(path):
             " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,true,%s,%s,true) RETURNING sd_id",
             (m.group(1) if m else None, person, None,
              next((h for h in ("부산보훈병원", "중앙보훈병원", "보훈병원") if h in masked), None),
-             f"의무기록 묶음({disease or '실데이터'})", fname, dest, len(blocks),
+             # 단일 서류(판독지 1건 등)는 하위문서 제목을, 묶음은 질병명을 종류로 표기
+             (blocks[0]["doc"] if len(blocks) == 1
+              else f"의무기록 묶음({disease or str(len(blocks)) + '건'})"), fname, dest, len(blocks),
              masked, json.dumps(blocks, ensure_ascii=False)))
         sd_id = cur.fetchone()[0]
         conn.commit()

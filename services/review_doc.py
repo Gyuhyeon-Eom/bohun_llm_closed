@@ -11,20 +11,7 @@ from core.llm_client import LLMClient
 from core.graph import applied_clauses, cases_by_kcd
 from core.subcommittee import resolve as resolve_sub, manual_doctype
 from core.retrieval import hybrid_search
-
-LAW_FULLNAME = {"예우법": "국가유공자 등 예우 및 지원에 관한 법률",
-                "보상법": "보훈보상대상자 지원에 관한 법률",
-                "보상자법": "보훈보상대상자 지원에 관한 법률",
-                "고엽제법": "고엽제후유의증 등 환자지원 및 단체설립에 관한 법률"}
-
-
-def _expand_clause(clause: str) -> str:
-    """'예우법 4-1-6' -> '예우법 제4조제1항제6호 ...' (법령 원문 표기로 확장해 검색 재현율 확보)."""
-    m = re.match(r"\s*(\S+?)\s*(\d+)-(\d+)-(\d+)\s*$", clause)
-    if not m:
-        return clause
-    name, jo, hang, ho = m.groups()
-    return f"{name} 제{jo}조제{hang}항제{ho}호 {LAW_FULLNAME.get(name, '')}".strip()
+from core.clauses import LAW_FULLNAME, expand_clauses as _expand_clause  # v0.2에서 core로 이동
 
 
 def build_fact_sheet(review_type: str, review_content: str, target_cond: str,
@@ -111,10 +98,16 @@ def draft(review_type: str, review_content: str, target_cond: str, facts: str,
     # v5 프롬프트 신규 변수: 판정 방향(그래프 주문 요약)·분과 심사기준 모듈
     from core.subcommittee_modules import module_for
     verdict_hint = " / ".join(f"{o['clause']} {o['result']}" for o in fs["orders"]) or "(주문 후보 없음 — 자료 기반 판단)"
+    rendered_fs = _render_fact_sheet(fs)
     body = _strip_markdown(llm.generate("review_doc", review_type=review_type,
                         verdict_hint=verdict_hint,
                         module_criteria=module_for(fs["subcommittee"]["no"]),
-                        fact_sheet=_render_fact_sheet(fs), facts=facts))
+                        fact_sheet=rendered_fs, facts=facts))
+    # v0.2 리플렉시온: 초안을 팩트시트와 대조 검증 - 환각·누락·결론 불일치만 수정.
+    # 지적사항은 HITL 화면에서 담당자가 확인 (reflexion 메타).
+    from core.reflexion import refine
+    body, refl = refine(body, evidence=f"{rendered_fs}\n[사실관계]\n{facts}",
+                        verdict=verdict_hint, llm=llm, postprocess=_strip_markdown)
     order_text = "\n".join(f"{o['pair_order']}. {o['clause']} : {o['result']}" for o in fs["orders"])
     return {"fact_sheet": fs, "order_text": order_text,
-            "body_draft": body, "status": "HITL_REVIEW"}
+            "body_draft": body, "status": "HITL_REVIEW", "reflexion": refl}

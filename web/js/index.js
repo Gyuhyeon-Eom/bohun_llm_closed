@@ -1715,4 +1715,8 @@ function initFbButtons(){ ['fb-btn-status','fb-btn-work'].forEach(id=>{ const b=
 function openFeedback(){ window.open('/feedback.html', '_blank'); }
 initFbButtons();
 
+/* ── 문서접수(OCR) — 전용 페이지(/ocr.html): 스캔 txt 업로드·검수·정규화·안건 변환 ── */
+function openOcr(){ window.open('/ocr.html', '_blank'); }
+const _ocrBtn = $('ocr-btn-work'); if(_ocrBtn) _ocrBtn.innerHTML = `${icon('IconFileText',14)} 문서접수(OCR)`;
+
 loadCases();
