@@ -310,3 +310,22 @@ CREATE TABLE IF NOT EXISTS case_draft (
   updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE (app_id, section)
 );
+
+-- ── 사건 자료함 (260722): 자료·파일을 행 단위로 관리 — JSON append 대신 정규 테이블 ──
+-- 기존 사건 데이터(의무기록·공적서류·스캔)에서 자동 파생 + 담당자 추가 업로드.
+-- is_final = '최종 자료' 표시: 심의 근거 세트 — 화면·의결서 근거 표시는 여기서 가져온다.
+CREATE TABLE IF NOT EXISTS case_file (
+  cf_id       BIGSERIAL PRIMARY KEY,
+  app_id      BIGINT NOT NULL,
+  dis_id      BIGINT,                        -- 상이처 관련 자료면 지정
+  kind        TEXT NOT NULL,                 -- 신청서/병적/요건사실확인서/의무기록/공적서류/스캔 원문/추가 자료…
+  title       TEXT NOT NULL,
+  file_name   TEXT,                          -- 실물 파일 있으면
+  file_path   TEXT,
+  note        TEXT,
+  is_final    BOOLEAN DEFAULT false,         -- 최종 자료 (담당자 지정)
+  uploaded_by TEXT DEFAULT '시스템',
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_case_file_key
+  ON case_file(app_id, COALESCE(dis_id,0), kind, title);

@@ -219,7 +219,7 @@ async function enterCase(id){
   fieldEdits = Array.isArray(fe) ? fe : [];
   try{ const cd = await (await fetch('/case-draft/'+id)).json(); caseDrafts = cd.drafts; draftGate = cd.gate; }
   catch(e){ caseDrafts = null; draftGate = null; }
-  draftEditing = null;
+  draftEditing = null; caseFiles = null;
   doc = d;
   tab='report'; curSec=0; panel='ai';
   visitedSecs = new Set(); ckState = (doc.checklist||[]).map(()=>false);
@@ -261,7 +261,7 @@ function renderWork(){
     </div>` : ''}
     <div id="paper"></div>
     ${doc ? `<div id="rail">${[
-      ['ai','IconWand2','AI 검토'],['ref','IconPaperclip','레퍼런스'],
+      ['ai','IconWand2','AI 검토'],['files','IconInbox','사건 자료함'],['ref','IconPaperclip','레퍼런스'],
       ['history','IconHistory','수정이력'],['similar','IconScale','유사사례'],
     ].map(([id,ic,l])=>`<button id="rail-${id}" class="${panel===id?'on':''}" title="${l}" onclick="setPanel('${id}')">${icon(ic,18)}</button>`).join('')}</div>
     <div id="rpanel" style="${panel?'':'display:none'}"></div>` : ''}`;
@@ -731,8 +731,9 @@ function rawS1(){
     <dl class="kv" style="margin-bottom:16px">
       <dt>신청인</dt><dd>${esc(s.applicant)}${s.is_real?' <span class="realtag">실데이터</span>':''} (${s.birth_year?s.birth_year+'년생, ':''}${esc(s.duty_type)})</dd>
       <dt>접수번호 / 차수</dt><dd class="mono">${esc(s.recv_no)} / ${s.round}차</dd>
+      <dt>신청구분</dt><dd><span class="stepchip" style="${s.apply_kind!=='신규'?'background:#fef3c7;color:#b45309':''}">${esc(s.apply_kind||'신규')}</span>${s.apply_kind!=='신규'?' <span class="mut" style="font-size:11px">재신청 계열 — 아래 이력 대조 필요</span>':''}</dd>
       <dt>심의내용</dt><dd>${esc(s.review_content)}${s.is_death?' <span class="note">(사망 사건)</span>':''}</dd></dl>
-    <h4 data-src="1-1 신청서 · 요건발급요청서">가. 신청경위 <span class="mut">(언제·어디서·무엇을·어떻게·왜 · 수정 시 판단문에 반영)</span></h4>
+    <h4>가. 신청경위 <span class="mut">(언제·어디서·무엇을·어떻게·왜 · 수정 시 판단문에 반영)</span></h4>
     ${editBlock('apply_story', s.apply_story, null, '1-1 신청서 · 요건발급요청서')}
     ${(s.apply_history&&s.apply_history.length)?`
     <h4>재신청 이력 <span class="mut">(${esc(s.apply_kind)} 사건 — 과거 신청·처분 경과)</span></h4>
@@ -744,10 +745,10 @@ function rawS1(){
         <td style="white-space:normal">${esc(h.summary)}</td>
         <td><span class="res ${/해당\(|인정/.test(h.result||'')&&!/비해당/.test(h.result||'')?'yes':'no'}">${esc(h.result||'')}</span></td></tr>`).join('')}
       </tbody></table></div>`:''}
-    <h4 data-src="1-1 신청서 (신청인 진술)">현재시점 후유증·합병증</h4>${editBlock('aftermath', s.aftermath, null, '1-1 신청서 (신청인 진술)')}
+    <h4>현재시점 후유증·합병증</h4>${editBlock('aftermath', s.aftermath, null, '1-1 신청서 (신청인 진술)')}
     ${evToggle('s1', s.disabilities.map(d=>'국가유공자 요건 사실 확인서 —' + d.name))}
     <h4>나. 신청상이</h4>` +
-    s.disabilities.map(d=>`<div class="card" data-src="요건심의 의뢰공문 · 부위 불명확 시 전화조사" id="eb_onset_story_${d.dis_id}"><div class="t">${esc(d.name)} <span class="mono">— ${dash(d.body_side)} · KCD ${esc(d.kcd_code)}</span></div>
+    s.disabilities.map(d=>`<div class="card" id="eb_onset_story_${d.dis_id}"><div class="t">${esc(d.name)} <span class="mono">— ${dash(d.body_side)} · KCD ${esc(d.kcd_code)}</span></div>
       <span class="ebval">발병년월 ${esc(d.onset_ym)} · ${esc(d.onset_story)}</span>
       ${editedBadge('onset_story', d.dis_id)}
       <button class="rowact backlink" style="margin-left:8px" onclick="startEdit('onset_story',${d.dis_id})">✎ 수정</button></div>`).join('') +
@@ -758,19 +759,19 @@ function rawS1(){
 function rawS2(){
   const s = doc, sv = s.service || {};
   return `
-    <h4 data-src="1-4 병적증명서 · 병적기록표/인사자력표">가. 병적관련자료</h4>
-    <div class="card" data-src="1-4 병적증명서 · 인사자력표"><dl class="kv">
+    <h4>가. 병적관련자료</h4>
+    <div class="card"><dl class="kv">
       <dt>입대 / 전역</dt><dd>${dash(sv.enlist_date)} / ${sv.discharge_date?esc(sv.discharge_date):'복무중'}</dd>
       <dt>병과·특기</dt><dd>${dash(sv.branch)}</dd><dt>근무경력</dt><dd>${dash(sv.career)}</dd>
       <dt>휴가내역</dt><dd>${dash(sv.leave_note)}</dd>
       ${sv.overtime?`<dt>초과근무·특별업무</dt><dd>${esc(sv.overtime)}</dd>`:''}</dl></div>
       ${evToggle('s2', ['병적증명서·인사자력표'].concat(s.disabilities.flatMap(d=>d.medical.map(m=>m.hospital + ' ' + m.rec_type + ' (' + (m.rec_date || '-') + ')'))))}
-    <h4 data-src="1-4 국가유공자 요건 사실 확인서 (소속기관 통보)">나. 국가유공자 요건 사실 확인서</h4>` +
-    s.disabilities.map(d=>`<div class="card" data-src="1-4 요건사실확인서" id="fact_${d.dis_id}"><div class="t">${esc(d.name)}</div>
+    <h4>나. 국가유공자 요건 사실 확인서</h4>` +
+    s.disabilities.map(d=>`<div class="card" id="fact_${d.dis_id}"><div class="t">${esc(d.name)}</div>
       <span class="ebval">상이연월일 ${dash(d.fact_date)} · 상이장소 ${dash(d.fact_place)} · 최초부상명 ${dash(d.fact_first_dx)}</span>
       ${editedBadge('fact_date', d.dis_id)}${editedBadge('fact_place', d.dis_id)}${editedBadge('fact_first_dx', d.dis_id)}
       <button class="rowact backlink" style="margin-left:8px" onclick="startFactEdit(${d.dis_id})">✎ 수정</button></div>`).join('') +
-    `<h4 data-src="1-3 의무기록사본증명서 · 2-1-1 전체 의무기록">다. 의무기록 <span class="mut">(시간순 · 음영 = 중요문서)</span></h4>` +
+    `<h4>다. 의무기록 <span class="mut">(시간순 · 음영 = 중요문서)</span></h4>` +
     s.disabilities.map(d=>`<div class="card"><div class="t">${esc(d.name)}</div>
       <table class="med"><thead><tr><th>일자</th><th>시기</th><th>기관</th><th>구분</th><th>진단·소견</th><th>급성/진구성</th></tr></thead>
       <tbody>${d.medical.map(m=>{
@@ -834,7 +835,7 @@ function editedBadge(field, disId){
   return n ? `<button class="backlink editedchip" onclick="event.stopPropagation();openDiffModal('${field}',${disId||'null'})" title="이전/이후 비교 보기">✎ 수정됨 ${n}</button>` : '';
 }
 function editBlock(field, value, disId, src){
-  return `<div class="card" ${src?`data-src="${esc(src)}"`:''} id="eb_${field}_${disId||0}">
+  return `<div class="card" id="eb_${field}_${disId||0}">
     <span class="ebval" style="white-space:pre-wrap">${esc(value||'—')}</span>
     ${editedBadge(field, disId)}
     <button class="rowact backlink" style="margin-left:8px" onclick="startEdit('${field}',${disId||'null'})">✎ 수정</button></div>`;
@@ -1019,7 +1020,8 @@ function secDraft(){
   const gateMsg = gate.ok
     ? `<span class="res yes">조립 가능</span> 필수 체크 완료 — 심의의결서는 아래 확정 텍스트를 <b>LLM 없이</b> 그대로 결합합니다.`
     : `<span class="res hold">대기</span> ${[...gate.empty_sections.map(x=>x+' 미작성'), ...gate.missing_checks.map(x=>'필수: '+x)].slice(0,3).map(esc).join(' · ')}${(gate.missing_checks.length+gate.empty_sections.length)>3?' 외':''}`;
-  $('paper').innerHTML = `<div class="crumb">심의서 작성 › 란별 AI 초안(정형화틀 모듈 기반) → 담당자 수정·체크 → 의결서 조립(LLM 미사용)</div>
+  $('paper').innerHTML = `<div class="crumb" style="display:flex;align-items:center;gap:10px">심의서 작성 › 란별 AI 초안(정형화틀 모듈 기반) → 담당자 수정·체크 → 의결서 조립(LLM 미사용)
+      <button class="btn outline sm" style="margin-left:auto" onclick="setPanel('files')">${icon('IconInbox',13)} 사건 자료함${caseFiles?` (최종 ${caseFiles.filter(f=>f.is_final).length}/${caseFiles.length})`:''}</button></div>
     ${lan('s1')}${lan('s2')}${lan('s3')}
     <div class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px">
       <div style="flex:1;font-size:12.5px">${gateMsg}</div>
@@ -1039,7 +1041,7 @@ async function saveDraft(sec){
   await fetch(`/case-draft/${doc.app_id}/${sec}/save`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({content: v})});
   logEvent('담당자', `심의서 ${sec} 란 수정 저장 — 교정쌍 축적`);
-  draftEditing = null;
+  draftEditing = null; caseFiles = null;
   await loadDrafts(); showSec(0);
 }
 async function toggleDraftCheck(sec, idx, checked){
@@ -1151,6 +1153,51 @@ function setPanel(p){
   $('rpanel').style.display = panel ? '' : 'none';
   renderPanel();
 }
+/* ── 사건 자료함: 자료를 행 단위(case_file)로 — 최종 자료(★) 지정, 추가·업로드 ── */
+let caseFiles = null;
+async function loadCaseFiles(){
+  caseFiles = await (await fetch(`/cases/${doc.app_id}/files`)).json();
+  if(panel==='files') renderPanel();
+}
+function filesPanelBody(){
+  if(!caseFiles){ loadCaseFiles(); return '<div class="mutetxt"><span class="loading">자료 불러오는 중</span></div>'; }
+  const row = f=>`<div class="refrow" style="cursor:default;display:flex;gap:8px;align-items:baseline">
+      <button class="backlink" style="margin:0;font-size:14px;color:${f.is_final?'#1d4ed8':'var(--border-strong)'}" title="최종 자료 지정/해제" onclick="toggleFinal(${f.cf_id},${f.is_final?0:1})">${f.is_final?'★':'☆'}</button>
+      <span style="flex:1;font-size:12px"><span class="stepchip">${esc(f.kind)}</span> ${esc(f.title)}
+        ${f.note?`<div class="mutetxt" style="font-size:11px">${esc(f.note)}</div>`:''}</span>
+      ${f.file_path?`<a class="backlink" style="margin:0" title="파일 다운로드" href="/case-files/${f.cf_id}/download" target="_blank">${icon('IconDownload',12)}</a>`:''}</div>`;
+  const fin = caseFiles.filter(f=>f.is_final), rest = caseFiles.filter(f=>!f.is_final);
+  return `<div style="font-size:11px;font-weight:700;color:#1d4ed8;margin-bottom:6px">★ 최종 자료 (${fin.length}) — 심의 근거 세트</div>
+    ${fin.map(row).join('')||'<div class="mutetxt">지정된 최종 자료 없음</div>'}
+    <div style="font-size:11px;font-weight:700;color:var(--slate-400);margin:12px 0 6px">기타 자료 (${rest.length})</div>${rest.map(row).join('')}
+    <div style="margin-top:12px;border-top:1px dashed var(--border-strong);padding-top:10px">
+      <input id="cfTitle" placeholder="자료명 (예: 의학자문 회신 2026.7.20)" style="width:100%;padding:6px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px;margin-bottom:6px" onkeydown="if(event.key==='Enter')addCaseFile()">
+      <div style="display:flex;gap:6px">
+        <input id="cfKind" value="추가 자료" style="width:90px;padding:6px 8px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px">
+        <button class="btn outline sm" onclick="addCaseFile()">추가</button>
+        <label class="btn outline sm" style="cursor:pointer;margin:0">파일 업로드<input type="file" style="display:none" onchange="uploadCaseFile(this)"></label>
+      </div></div>`;
+}
+async function toggleFinal(cfId, v){
+  await fetch(`/case-files/${cfId}/final?is_final=${v}`, {method:'POST'});
+  logEvent('담당자', `자료 ${v?'최종 지정':'최종 해제'} (cf ${cfId})`);
+  await loadCaseFiles();
+}
+async function addCaseFile(){
+  const t = ($('cfTitle')?.value||'').trim(); if(!t) return;
+  await fetch(`/cases/${doc.app_id}/files`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title:t, kind: ($('cfKind')?.value||'추가 자료')})});
+  logEvent('담당자', `자료 추가: ${t}`);
+  await loadCaseFiles();
+}
+async function uploadCaseFile(inp){
+  const f = inp.files[0]; if(!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  await fetch(`/cases/${doc.app_id}/files/upload`, {method:'POST', body: fd});
+  logEvent('담당자', `자료 파일 업로드: ${f.name}`);
+  await loadCaseFiles();
+}
+
 function panelShell(title, ic, body){
   return `<div class="ph">${icon(ic,16)} ${title}</div><div class="pb">${body}</div>`;
 }
@@ -1158,6 +1205,7 @@ function renderPanel(){
   const rp = $('rpanel'); if(!rp || !panel) return;
   if(panel==='ai'){     rp.innerHTML = panelShell('AI 검토','IconWand2', aiPanelBody());
                         loadLlmStatus().then(()=>{ if(panel==='ai') rp.innerHTML = panelShell('AI 검토','IconWand2', aiPanelBody()); }); }
+  if(panel==='files')   rp.innerHTML = panelShell('사건 자료함','IconInbox', filesPanelBody());
   if(panel==='ref')     rp.innerHTML = panelShell('레퍼런스','IconPaperclip', refPanelBody());
   if(panel==='history') rp.innerHTML = panelShell('수정이력','IconHistory', historyPanelBody());
   if(panel==='similar'){ rp.innerHTML = panelShell('유사사례','IconScale', similarPanelBody()); loadSimilarPanel(); }

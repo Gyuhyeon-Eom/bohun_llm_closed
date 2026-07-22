@@ -160,6 +160,7 @@ def _dossier(app: dict, d: dict) -> str:
     """LLM에 주입할 사건 자료 (해당 상이처 관점)."""
     s = app.get("service") or {}
     lines = [f"신청인: {app['applicant']} ({app['duty_type']}, 심의차수 {app['round']}차)",
+             f"신청구분: {app.get('apply_kind') or '신규'} (신규/재신청/이의신청/재심의 중)",
              f"신청경위: {app['apply_story']}",
              *[f"재신청 이력{h.get('seq')}: {h.get('date')} {h.get('kind')} — {h.get('summary')}"
                f" → {h.get('result')}" for h in (app.get("apply_history") or [])],

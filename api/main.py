@@ -8,7 +8,7 @@ import json as _json
 import os
 import tempfile, threading, time
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from ingestion.types import Block, BlockType
@@ -322,6 +322,46 @@ class GradePredictReq(BaseModel):
     body_part: str | None = None
     n: int = 5
     ga_id: int | None = None   # 담당자 유사사례 선별 반영용
+
+
+class CaseFileReq(BaseModel):
+    kind: str = "추가 자료"
+    title: str
+    dis_id: int | None = None
+    note: str | None = None
+
+
+@app.get("/cases/{app_id}/files")             # 사건 자료함 (자동 파생 + 추가분, 최종 자료 우선)
+def api_case_files(app_id: int):
+    from services import case_file
+    return case_file.list_files(app_id)
+
+
+@app.post("/cases/{app_id}/files")            # 자료 메타 추가 (행 단위 — JSON append 불필요)
+def api_case_file_add(app_id: int, req: CaseFileReq):
+    from services import case_file
+    return case_file.add(app_id, req.kind, req.title, req.dis_id, req.note)
+
+
+@app.post("/cases/{app_id}/files/upload")     # 파일 업로드 추가
+async def api_case_file_upload(app_id: int, file: UploadFile, kind: str = "추가 자료"):
+    from services import case_file
+    return case_file.save_upload(app_id, file.filename, await file.read(), kind)
+
+
+@app.post("/case-files/{cf_id}/final")        # 최종 자료 지정/해제
+def api_case_file_final(cf_id: int, is_final: int = 1):
+    from services import case_file
+    return case_file.set_final(cf_id, bool(is_final))
+
+
+@app.get("/case-files/{cf_id}/download")      # 실물 파일 다운로드 (있을 때)
+def api_case_file_download(cf_id: int):
+    from services import case_file
+    f = case_file.get_file(cf_id)
+    if not f or not f.get("file_path") or not os.path.exists(f["file_path"]):
+        return {"error": "실물 파일 없음 (메타 자료)"}
+    return FileResponse(f["file_path"], filename=f["file_name"] or "file")
 
 
 class DraftSaveReq(BaseModel):
