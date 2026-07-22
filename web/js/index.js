@@ -209,10 +209,12 @@ async function enterCase(id){
   const c = cases.find(x=>x.app_id===id);
   $('entry-msg').textContent = `${c.recv_no} 안건 정보를 불러오는 중`;
   show('v-entry');
-  const [d] = await Promise.all([
+  const [d, fe] = await Promise.all([
     (await fetch('/decision-doc/'+id)).json(),
+    (await fetch('/field-edits/'+id)).json().catch(()=>[]),
     new Promise(r=>setTimeout(r, 900)),
-  ]);
+  ].slice(0,3));
+  fieldEdits = Array.isArray(fe) ? fe : [];
   doc = d;
   tab='report'; curSec=0; panel='ai';
   visitedSecs = new Set(); ckState = (doc.checklist||[]).map(()=>false);
@@ -742,6 +744,7 @@ function sec1(){
     <h4>나. 신청상이</h4>` +
     s.disabilities.map(d=>`<div class="card" data-src="요건심의 의뢰공문 · 부위 불명확 시 전화조사" id="eb_onset_story_${d.dis_id}"><div class="t">${esc(d.name)} <span class="mono">— ${dash(d.body_side)} · KCD ${esc(d.kcd_code)}</span></div>
       <span class="ebval">발병년월 ${esc(d.onset_ym)} · ${esc(d.onset_story)}</span>
+      ${editedBadge('onset_story', d.dis_id)}
       <button class="rowact backlink" style="margin-left:8px" onclick="startEdit('onset_story',${d.dis_id})">✎ 수정</button></div>`).join('') +
     (s.apply_story
       ? aiReview('완료', '신청경위(육하원칙)와 신청상이 기재가 확인됩니다.')
@@ -760,6 +763,7 @@ function sec2(){
     <h4 data-src="1-4 국가유공자 요건 사실 확인서 (소속기관 통보)">나. 국가유공자 요건 사실 확인서</h4>` +
     s.disabilities.map(d=>`<div class="card" data-src="1-4 요건사실확인서" id="fact_${d.dis_id}"><div class="t">${esc(d.name)}</div>
       <span class="ebval">상이연월일 ${dash(d.fact_date)} · 상이장소 ${dash(d.fact_place)} · 최초부상명 ${dash(d.fact_first_dx)}</span>
+      ${editedBadge('fact_date', d.dis_id)}${editedBadge('fact_place', d.dis_id)}${editedBadge('fact_first_dx', d.dis_id)}
       <button class="rowact backlink" style="margin-left:8px" onclick="startFactEdit(${d.dis_id})">✎ 수정</button></div>`).join('') +
     `<h4 data-src="1-3 의무기록사본증명서 · 2-1-1 전체 의무기록">다. 의무기록 <span class="mut">(시간순 · 음영 = 중요문서)</span></h4>` +
     s.disabilities.map(d=>`<div class="card"><div class="t">${esc(d.name)}</div>
@@ -813,10 +817,57 @@ function sec3(){
 }
 
 /* ── 항목 인라인 편집 (텍스트박스) — 수정 즉시 반영 + 교정쌍 축적(field_edit) ── */
+let fieldEdits = [];   // 이 사건의 수정 이력 (서버 field_edit)
+const FIELD_LABEL = {apply_story:'신청경위', aftermath:'후유증·합병증', onset_story:'신청상이 경위',
+  fact_date:'상이연월일', fact_place:'상이장소', fact_first_dx:'최초부상명', review_content:'심의내용'};
+function editCount(field, disId){
+  return fieldEdits.filter(e=>e.field===field && (e.dis_id||0)===(disId||0)).length;
+}
+function editedBadge(field, disId){
+  const n = editCount(field, disId);
+  return n ? `<button class="backlink editedchip" onclick="event.stopPropagation();openDiffModal('${field}',${disId||'null'})" title="이전/이후 비교 보기">✎ 수정됨 ${n}</button>` : '';
+}
 function editBlock(field, value, disId, src){
   return `<div class="card" ${src?`data-src="${esc(src)}"`:''} id="eb_${field}_${disId||0}">
     <span class="ebval" style="white-space:pre-wrap">${esc(value||'—')}</span>
+    ${editedBadge(field, disId)}
     <button class="rowact backlink" style="margin-left:8px" onclick="startEdit('${field}',${disId||'null'})">✎ 수정</button></div>`;
+}
+
+/* ── 수정 이전/이후 비교 팝업 (IntelliJ·GitHub diff 스타일) ── */
+function wordDiff(a, b){
+  const A=(a||'').split(/(\s+)/).filter(x=>x!==''), B=(b||'').split(/(\s+)/).filter(x=>x!=='');
+  const n=A.length, m=B.length;
+  const dp=Array.from({length:n+1},()=>new Array(m+1).fill(0));
+  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)
+    dp[i][j]=A[i]===B[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  let i=0,j=0,o='',v='';
+  while(i<n&&j<m){
+    if(A[i]===B[j]){o+=esc(A[i]);v+=esc(B[j]);i++;j++;}
+    else if(dp[i+1][j]>=dp[i][j+1]){o+=`<del>${esc(A[i])}</del>`;i++;}
+    else{v+=`<ins>${esc(B[j])}</ins>`;j++;}
+  }
+  while(i<n)o+=`<del>${esc(A[i++])}</del>`;
+  while(j<m)v+=`<ins>${esc(B[j++])}</ins>`;
+  return [o, v];
+}
+function openDiffModal(field, disId){
+  const items = fieldEdits.filter(e=>e.field===field && (e.dis_id||0)===(disId||0));
+  if(!items.length) return;
+  const rows = items.map(e=>{
+    const [o, v] = wordDiff(e.old_value, e.new_value);
+    return `<div style="margin-bottom:16px">
+      <div class="mut" style="font-size:11px;margin-bottom:6px">${esc((e.created_at||'').replace('T',' ').slice(0,16))} · ${esc(e.editor||'담당자')}</div>
+      <div class="diffwrap">
+        <div class="diffpane"><div class="difflabel">이전</div><div class="diffbody">${o||'<span class="mut">—</span>'}</div></div>
+        <div class="diffpane"><div class="difflabel new">이후</div><div class="diffbody">${v||'<span class="mut">—</span>'}</div></div>
+      </div></div>`;
+  }).join('');
+  document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="diffModal" onclick="if(event.target===this)this.remove()">
+    <div class="gmodal" style="width:900px">
+      <div class="mh"><span>수정 이력 — ${esc(FIELD_LABEL[field]||field)} <span class="mut" style="font-size:12px;font-weight:400">(${items.length}회 · 최신순 · 교정쌍은 정규화 학습에 활용)</span></span>
+        <button class="backlink" style="margin:0" onclick="$('diffModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+      ${rows}</div></div>`);
 }
 function getField(field, disId){
   if(disId){ const d=doc.disabilities.find(x=>x.dis_id===disId); return (d&&d[field])||''; }
@@ -835,7 +886,9 @@ async function saveEdit(field, disId){
   await fetch(`/cases/${doc.app_id}/field`,{method:'POST',headers:{'Content-Type':'application/json'},
     body: JSON.stringify({field, value:v, dis_id:disId})});
   logEvent('담당자', `항목 수정(${field}) — 교정쌍 축적, 이후 판단문·정규화에 반영`);
-  doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  [doc, fieldEdits] = await Promise.all([
+    (await fetch(`/decision-doc/${doc.app_id}`)).json(),
+    (await fetch(`/field-edits/${doc.app_id}`)).json()]);
   showSec(curSec);
 }
 function startFactEdit(disId){
@@ -856,7 +909,9 @@ async function saveFactEdit(disId){
       body: JSON.stringify({field:f, value:v, dis_id:disId})});
   }
   logEvent('담당자', `요건사실확인서 수정(상이처 ${disId}) — 교정쌍 축적`);
-  doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  [doc, fieldEdits] = await Promise.all([
+    (await fetch(`/decision-doc/${doc.app_id}`)).json(),
+    (await fetch(`/field-edits/${doc.app_id}`)).json()]);
   showSec(curSec);
 }
 
@@ -1038,33 +1093,7 @@ function aiPanelBody(){
     + line(true, `관계법령 ${nLaw}건 대조 완료`)
     + line(nSim>0, `유사사례 ${nSim}건 조회${nSim?'':' — 일치 사례 없음'}`)
     + (nConflict ? line(false, `과거 판정 중 비해당 ${nConflict}건 — 상충 여부 확인 필요`) : '')
-    + aiPanelLog.map(m=>`<div class="pcard" style="cursor:default"><div class="pt">${esc(m.q)}</div>
-        ${m.loading ? `<div class="pm"><span class="loading">생성 중</span></div>`
-          : `<div class="pm${m.err?' err':''}" style="white-space:pre-wrap;${m.err?'':'color:var(--slate-700)'}">${m.err?'⚠ ':''}${esc(stripMd(m.a))}${
-              m.err?` <button class="backlink" style="margin:0 0 0 6px;text-decoration:underline" onclick="retryAiPanel(${aiPanelLog.indexOf(m)})">다시 검토</button>`:''}</div>${srcChips(m.sources)}`}</div>`).join('')
-    + (llmStatus && !llmStatus.ok ? `<div class="mutetxt" style="margin-top:10px">${llmChip()}</div>` : '')
-    + loadHtml('loadchip-panel')
-    + `<div class="pinput"><input id="aipanel-q" placeholder="이 안건에 대해 질의 (예: 판정근거 재검토)"
-        onkeydown="if(event.key==='Enter')askAiPanel()">
-        <button class="btn sm" style="padding:2px 8px" onclick="askAiPanel()">${icon('IconSend',13)}</button></div>`;
-}
-function retryAiPanel(i){
-  const m = aiPanelLog[i]; if(!m) return;
-  aiPanelLog.splice(i,1); askAiPanel(m.q);
-}
-async function askAiPanel(preset){
-  if(aiPanelLog.length && aiPanelLog[aiPanelLog.length-1].loading) return;
-  const inp = $('aipanel-q'); const q = (preset || (inp && inp.value) || '').trim(); if(!q) return;
-  if(inp) inp.value = '';
-  const entry = {q, a:'', loading:true}; aiPanelLog.push(entry); renderPanel();
-  setTimeout(pollLoad, 300);
-  const ctx = `[안건 ${doc.recv_no} · ${doc.review_content} · ${doc.disabilities.map(d=>d.name+'('+d.kcd_code+')').join(', ')}] `;
-  const hist = aiPanelLog.filter(m=>!m.loading && !m.err).slice(-3)
-    .flatMap(m=>[{role:'user', text:m.q}, {role:'ai', text:m.a}]);
-  const r = await askLLM({question: ctx + q, history: hist, persist: false});  // 안건 질의는 세션 기록 제외
-  entry.loading = false;
-  if(r.error){ entry.a = r.error; entry.err = true; } else { entry.a = r.answer; entry.sources = r.sources; }
-  renderPanel();
+    + (llmStatus && !llmStatus.ok ? `<div class="mutetxt" style="margin-top:10px">${llmChip()}</div>` : '');
 }
 
 function refPanelBody(){

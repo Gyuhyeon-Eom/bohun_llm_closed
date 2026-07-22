@@ -378,3 +378,13 @@ table.ds tbody tr{transition:background .15s}
 [data-src]:hover::after{content:'근거: ' attr(data-src);position:absolute;left:0;bottom:calc(100% + 4px);background:#0f172a;color:#fff;font-size:11px;font-weight:400;padding:4px 9px;border-radius:4px;white-space:nowrap;z-index:40;pointer-events:none;box-shadow:0 4px 12px rgba(15,23,42,.2)}
 .rowact{opacity:0;transition:opacity .12s}
 .card:hover .rowact, tr:hover .rowact{opacity:1}
+
+/* 수정 이전/이후 비교 팝업 (IntelliJ·GitHub diff 스타일) */
+.editedchip{margin-left:8px;font-size:11px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;padding:1px 7px;text-decoration:none}
+.diffwrap{display:flex;gap:10px}
+.diffpane{flex:1;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.difflabel{font-size:11px;font-weight:700;padding:4px 10px;background:#fef2f2;color:#b91c1c;border-bottom:1px solid var(--border-strong)}
+.difflabel.new{background:#f0fdf4;color:#15803d}
+.diffbody{padding:10px 12px;font-size:12.5px;line-height:21px;white-space:pre-wrap}
+.diffbody del{background:#fee2e2;color:#b91c1c;text-decoration:line-through;border-radius:2px;padding:0 1px}
+.diffbody ins{background:#dcfce7;color:#15803d;text-decoration:none;border-radius:2px;padding:0 1px}
