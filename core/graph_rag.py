@@ -74,7 +74,7 @@ def _person_facts(cur, names: list[str]) -> list[str]:
                 seg += f" · 기재 등급: {', '.join(grd)}"
             facts.append(seg)
         for ano, injury, eg in _rows(cur, """
-            SELECT ga.name, ga.meta->>'injury', ga.meta->>'exam_grade'
+            SELECT DISTINCT ga.name, ga.meta->>'injury', ga.meta->>'exam_grade'
             FROM kg_nodes p
             JOIN kg_edges e ON e.src=p.node_id AND e.etype='HAS_AGENDA'
             JOIN kg_nodes ga ON ga.node_id=e.dst
