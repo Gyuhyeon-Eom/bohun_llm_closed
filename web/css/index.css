@@ -372,3 +372,9 @@ table.ds tbody tr{transition:background .15s}
 
 /* 실데이터 배지 — 시연용 표본과 구분 (파란 강조) */
 .realtag{display:inline-block;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;font-size:11px;font-weight:700;padding:1px 6px;margin-left:4px;vertical-align:1px}
+
+/* 항목 근거 툴팁 (마우스오버 — 정형화틀 관련서류 매핑) + hover 시에만 보이는 행동 버튼 */
+[data-src]{position:relative}
+[data-src]:hover::after{content:'근거: ' attr(data-src);position:absolute;left:0;bottom:calc(100% + 4px);background:#0f172a;color:#fff;font-size:11px;font-weight:400;padding:4px 9px;border-radius:4px;white-space:nowrap;z-index:40;pointer-events:none;box-shadow:0 4px 12px rgba(15,23,42,.2)}
+.rowact{opacity:0;transition:opacity .12s}
+.card:hover .rowact, tr:hover .rowact{opacity:1}

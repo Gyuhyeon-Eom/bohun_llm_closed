@@ -25,7 +25,7 @@ CASES = [
                    onset_story="유격훈련 하강 착지 중 우측 슬관절 염전 손상",
                    fact_date="2023.04.12", fact_place="OO부대 유격훈련장", fact_first_dx="우측 슬관절 염좌 의증")],
          svc=dict(enlist_date="2022-11-07", discharge_date="2024-05-06", branch="보병",
-                  career="제OO사단 수색대대 소총수(2022.11~2024.05)", leave_note="부상일 전후 휴가 없음(훈련기간)"),
+                  career="'22.11 제OO사단 신병교육대(훈련병) → '23.2 수색대대 소총수 → '23.11 혹한기 훈련 참가 → '24.3 GOP 경계작전 투입", leave_note="부상일 전후 휴가 없음(훈련기간)"),
          med=[(0, "사단 의무대", "외래", "복무중", "2023-04-12", "우측 무릎 통증·부종", "우측 슬관절 염좌 의증", None, None, None, None),
               (0, "국군OO병원", "영상", "복무중", "2023-04-26", None, "전방십자인대 완전 파열",
                "MRI", "전방십자인대 완전 파열, 골수부종 및 관절삼출액 동반(급성 소견)", "N", None),
@@ -44,7 +44,7 @@ CASES = [
                    onset_story="발전기 단독 운반 중 요추부 염좌 후 방사통 발생 주장",
                    fact_date="2021.08.03", fact_place="OO해안초소", fact_first_dx="요추부 염좌")],
          svc=dict(enlist_date="2010-03-02", discharge_date=None, branch="포병 화력장비",
-                  career="제OO포병여단 화포정비관(2015~현재)", leave_note="부상 직후 연가 3일 사용 기록"),
+                  career="'15.3 제OO포병여단 정비중대 화포정비병 → '18.7 정비반장(부사관 임관) → '22.1 여단 군수과 화포정비관(현재)", leave_note="부상 직후 연가 3일 사용 기록"),
          med=[(0, "OO한의원", "건보내역", "입대전", "2008-06-10", "요통", "요추부 염좌(입대 전 다수 통원)", None,
                "건강보험요양급여내역상 2006~2008년 요통 통원 14회 확인", "Y", None),
               (0, "군 의무대", "외래", "복무중", "2021-08-03", "요통·좌하지 방사통", "요추부 염좌", None, None, None, None),
@@ -63,7 +63,7 @@ CASES = [
                    onset_story="입대 6주차 발열·기침 지속으로 흉부 X-ray상 결핵 확진",
                    fact_date="2024.01.22", fact_place="OO신병교육대", fact_first_dx="폐결핵 의증")],
          svc=dict(enlist_date="2023-12-11", discharge_date="2024-03-15", branch="보병(의병전역)",
-                  career="OO신병교육대 훈련병(2023.12~2024.01)", leave_note="입영 후 외출·외박 없음(잠복기 내 외부접촉 없음)"),
+                  career="'23.12 OO신병교육대 훈련병(입영 4주차)", leave_note="입영 후 외출·외박 없음(잠복기 내 외부접촉 없음)"),
          med=[(0, "병무청 지정병원", "외래", "입대전", "2023-11-02", None, "입영 신체검사: 흉부 X-ray 정상", "X-ray", "활동성 병변 없음", None, None),
               (0, "신교대 의무실", "외래", "복무중", "2024-01-22", "발열·기침 3주", "폐결핵 의증", None, None, None, None),
               (0, "국군OO병원", "영상", "복무중", "2024-01-25", None, "우상엽 폐결핵",
@@ -81,7 +81,7 @@ CASES = [
                    onset_story="자주포 실사격 훈련 중 폭음 노출 후 좌측 청력 저하·이명",
                    fact_date="2022.10.14", fact_place="OO포병대대 사격장", fact_first_dx="급성 음향외상")],
          svc=dict(enlist_date="2021-06-14", discharge_date="2022-12-13", branch="포병 사격지휘",
-                  career="제OO포병대대 사격지휘병(2021.06~2022.12)", leave_note="부상일 전후 휴가 없음"),
+                  career="'21.6 제OO포병대대 신병교육 수료 → '21.9 사격지휘병 → '22.6 포탄 적재·운반조 차출(혹서기 훈련)", leave_note="부상일 전후 휴가 없음"),
          med=[(0, "대대 의무실", "외래", "복무중", "2022-10-14", "좌측 이명·먹먹함", "급성 음향외상", None, None, None, None),
               (0, "국군OO병원", "외래", "복무중", "2022-10-28", None, "좌측 소음성 난청",
                None, "순음청력검사 좌측 6분법 38dB (기준 26dB 초과), 우측 정상", "N", None),
@@ -99,7 +99,7 @@ CASES = [
                    onset_story="화재현장 구조작업 중 낙하물 두부 가격",
                    fact_date="2025.02.08", fact_place="OO시 OO동 화재현장", fact_first_dx="두부 열상 및 뇌진탕 의증")],
          svc=dict(enlist_date="2012-07-01", discharge_date=None, branch="소방(구조)",
-                  career="OO소방서 구조대(2018~현재)", leave_note=None,
+                  career="'18.1 OO소방서 119안전센터 구급대 → '20.5 현장 구조대 → '23.2 구조대 팀장(현재)", leave_note=None,
                   overtime="사고 당일 화재출동 3회, 직전 1주 초과근무 22시간(근무실적 확인)"),
          med=[(0, "OO대학교병원 응급실", "입퇴원", "복무중", "2025-02-08", "두부 외상·의식저하", "외상성 지주막하출혈",
                None, "응급실 경유 신경외과 입원 11일", "N", None),
@@ -591,9 +591,28 @@ def gen_extra_cases(n=18):
                       f"최초 의무기록 진술과 대조 필요. ※ 사후 작성")]
 
         enlist = f"{yy - 1}-{rnd.randint(1, 12):02d}-01"
-        career_desc = (f"{unit} {['소총수', '정비관', '사격지휘', '수색', '통신'][i % 5]}"
-                       f"({yy - 1}~{'현재' if rnd.random() < .4 else yy + 1})" if is_mil
-                       else f"{issuer} 현장직({yy - 1}~현재)")
+        # 근무경력: 실제 병적처럼 보직 이동·파견·훈련 이력을 2~4개 체인으로 (담당자 피드백 반영)
+        if is_mil:
+            _mil_posts = ["신병교육대(훈련병)", "수색중대 소총수", "GOP 경계작전 투입", "포병대대 사격지휘병",
+                          "정비중대 화포정비병", "통신중대 무전병", "의무중대 의무병", "혹한기 훈련 참가",
+                          "유격훈련 조교 지원", "본부중대 행정병(보직변경)", "해안 경계작전 파견", "탄약고 경계병"]
+            k = rnd.randint(2, 4)
+            y2, m2 = yy - 1, rnd.randint(1, 3)
+            segs = []
+            for j in range(k):
+                segs.append(f"'{str(y2)[2:]}.{m2} {(unit + ' ') if j == 0 else ''}{_mil_posts[(i * 3 + j * 5) % len(_mil_posts)]}")
+                m2 += rnd.randint(3, 8)
+                while m2 > 12:
+                    m2 -= 12
+                    y2 += 1
+            career_desc = " → ".join(segs)
+        else:
+            _civ_posts = ["현장 구조대", "119안전센터 구급대", "상황실 근무", "예방·점검 순회반",
+                          "재난현장 지원 파견", "훈련센터 교육 입교", "본서 행정지원(보직변경)"]
+            k = rnd.randint(2, 3)
+            segs = [f"'{str(yy - 1 + j)[2:]}.{rnd.randint(1, 12)} {issuer} {_civ_posts[(i * 2 + j * 3) % len(_civ_posts)]}"
+                    for j in range(k)]
+            career_desc = " → ".join(segs)
         out.append(dict(
             app=dict(recv_no=recv, applicant=name, birth_year=rnd.randint(1988, 2003),
                      duty_type=duty, review_content=rc, subcommittee=sub, track="일반",

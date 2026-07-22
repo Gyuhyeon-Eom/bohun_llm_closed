@@ -49,6 +49,20 @@ def _rule_norm(block, text):
             "source": "rule"}
 
 
+def _recent_corrections(cur, n=5) -> str:
+    """담당자 교정쌍(field_edit)을 few-shot 예시로 — 폐쇄망에서 모델 재학습 대신
+    프롬프트 학습으로 교정 패턴을 반영하는 층 (수정이 쌓일수록 정규화가 좋아진다)."""
+    cur.execute("""SELECT field, old_value, new_value FROM field_edit
+                   WHERE old_value IS NOT NULL AND new_value IS NOT NULL
+                     AND old_value <> new_value AND length(old_value) BETWEEN 2 AND 300
+                   ORDER BY fe_id DESC LIMIT %s""", (n,))
+    rows = cur.fetchall()
+    if not rows:
+        return "(축적된 교정 예시 없음)"
+    return "\n".join(f"- [{r['field']}] \"{r['old_value'][:120]}\" → \"{r['new_value'][:120]}\""
+                     for r in rows)
+
+
 def normalize_scan(sd_id: int, force: bool = False, llm=None) -> dict:
     """scan_doc 1건의 전 하위문서 블록 정규화. 이미 된 블록은 건너뜀(force=재실행)."""
     if llm is None:
@@ -63,6 +77,7 @@ def normalize_scan(sd_id: int, force: bool = False, llm=None) -> dict:
         if not blocks:
             return {"error": "하위문서 블록 없음"}
         raw_lines = (sd["raw_text"] or "").splitlines()
+        corrections = _recent_corrections(cur)
 
         n_llm = n_rule = n_skip = 0
         for i, b in enumerate(blocks):
@@ -73,7 +88,7 @@ def normalize_scan(sd_id: int, force: bool = False, llm=None) -> dict:
             norm = None
             try:
                 out = llm.generate("ocr_normalize", doc_title=b.get("doc") or "의무기록",
-                                   ocr_text=text)
+                                   ocr_text=text, corrections=corrections)
                 norm = _parse_json(out)
                 if norm is not None:
                     norm["source"] = "llm"

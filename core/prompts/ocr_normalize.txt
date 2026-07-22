@@ -20,6 +20,9 @@
  "key_findings": ["판정 근거 문장1", "문장2"],
  "summary": "이 문서가 말하는 바 한 문장"}}
 
+[담당자 교정 학습 예시 — 과거 담당자가 고친 표현 패턴을 참고하라]
+{corrections}
+
 [문서 제목] {doc_title}
 [OCR 원문]
 {ocr_text}

@@ -324,6 +324,62 @@ class GradePredictReq(BaseModel):
     ga_id: int | None = None   # 담당자 유사사례 선별 반영용
 
 
+class FieldEditReq(BaseModel):
+    field: str
+    value: str
+    dis_id: int | None = None
+    editor: str = "담당자"
+
+
+# 수정 허용 필드 화이트리스트 — 임의 컬럼 갱신 차단
+_EDIT_APP_FIELDS = {"apply_story", "aftermath", "review_content"}
+_EDIT_DIS_FIELDS = {"onset_story", "fact_date", "fact_place", "fact_first_dx"}
+
+
+@app.post("/cases/{app_id}/field")    # 항목 수정 (텍스트박스 편집 저장 + 교정쌍 축적)
+def api_edit_field(app_id: int, req: FieldEditReq):
+    import psycopg
+    from config.settings import PG_DSN
+    if req.dis_id is None and req.field not in _EDIT_APP_FIELDS:
+        return {"error": f"수정 불가 필드: {req.field}"}
+    if req.dis_id is not None and req.field not in _EDIT_DIS_FIELDS:
+        return {"error": f"수정 불가 필드: {req.field}"}
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        if req.dis_id is None:
+            cur.execute(f"SELECT {req.field} FROM application WHERE app_id=%s", (app_id,))
+            row = cur.fetchone()
+            if not row:
+                return {"error": "안건 없음"}
+            old = row[0]
+            cur.execute(f"UPDATE application SET {req.field}=%s WHERE app_id=%s",
+                        (req.value, app_id))
+        else:
+            cur.execute(f"SELECT {req.field} FROM disability WHERE dis_id=%s AND app_id=%s",
+                        (req.dis_id, app_id))
+            row = cur.fetchone()
+            if not row:
+                return {"error": "상이처 없음"}
+            old = row[0]
+            cur.execute(f"UPDATE disability SET {req.field}=%s WHERE dis_id=%s",
+                        (req.value, req.dis_id))
+        cur.execute("INSERT INTO field_edit(app_id, dis_id, field, old_value, new_value, editor)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    (app_id, req.dis_id, req.field, old, req.value, req.editor))
+        conn.commit()
+    return {"ok": True, "field": req.field}
+
+
+@app.get("/field-edits/{app_id}")     # 수정 이력 (교정 학습 축적분 확인)
+def api_field_edits(app_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM field_edit WHERE app_id=%s ORDER BY fe_id DESC LIMIT 50",
+                    (app_id,))
+        return cur.fetchall()
+
+
 class SimilarPickReq(BaseModel):
     scope: str                 # case | grade
     case_id: int

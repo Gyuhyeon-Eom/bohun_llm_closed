@@ -282,3 +282,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_similar_pick_key ON similar_pick
 ALTER TABLE application ADD COLUMN IF NOT EXISTS apply_history JSONB;  -- [{seq,date,kind,summary,result}]
 -- ── 0721 회의 ⑦: 등급 안건 카테고리 (고엽제=보훈병원 신검 기반 / 상이=심사위원회 판단) ──
 ALTER TABLE grade_agenda ADD COLUMN IF NOT EXISTS category TEXT DEFAULT '상이';
+
+-- ── 항목 수정 이력 (교정 학습 축적): 담당자 수정 전/후 쌍 저장 ──
+-- 수정값은 즉시 판단문·산출물에 반영되고, 교정쌍은 OCR 정규화 few-shot 예시로 주입된다
+-- (폐쇄망 FabriX는 API라 모델 재학습 불가 — 프롬프트 학습 + 파서 개선 지표로 활용).
+CREATE TABLE IF NOT EXISTS field_edit (
+  fe_id      BIGSERIAL PRIMARY KEY,
+  app_id     BIGINT NOT NULL,
+  dis_id     BIGINT,                        -- 상이처 단위 필드면 지정
+  field      TEXT NOT NULL,                 -- apply_story/aftermath/onset_story/fact_* 등
+  old_value  TEXT,
+  new_value  TEXT,
+  editor     TEXT DEFAULT '담당자',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_field_edit_app ON field_edit(app_id);

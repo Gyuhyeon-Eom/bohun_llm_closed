@@ -637,15 +637,13 @@ function gradePredictBody(g){
         <span style="flex:1">${esc(c.description)}</span>
         <span class="mutetxt mono" style="white-space:nowrap">부합도 ${c.similarity}</span></div>`).join('')}` : '';
     const sim = (r.similar&&r.similar.length) ? `
-      <h4>유사 상이등급 관련 정보 · 유사 상이등급 조회 <span class="mut">(제외·고정 선별 가능 — 참고용)</span></h4>
+      <h4>유사 상이등급 관련 정보 · 유사 상이등급 조회 <span class="mut">(참고용)</span></h4>
       <div class="tblcard"><table class="ds" style="min-width:0"><thead><tr>
-        <th>접수번호</th><th>회의일자</th><th>상병명</th><th>상이등급</th><th style="width:170px"></th></tr></thead>
+        <th>접수번호</th><th>회의일자</th><th>상병명</th><th>상이등급</th><th style="width:90px"></th></tr></thead>
         <tbody>${r.similar.map((c,i)=>`<tr style="cursor:default">
           <td class="mono">${esc(c.recv_no)}${c.pick==='pin'?' <span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★</span>':''}</td><td class="mono">${esc(c.meeting_date)}</td>
           <td>${esc(c.disease_name)}</td><td class="ink">${esc(c.grade)}</td>
-          <td style="white-space:nowrap"><button class="backlink" style="margin:0;text-decoration:underline" onclick="gv.modal=${i};renderGradeDetail()">상세</button>
-            <button class="backlink" style="margin:0 0 0 8px" onclick="pickGradeSimilar(${c.gc_id},'${c.pick==='pin'?'clear':'pin'}')">${c.pick==='pin'?'해제':'★고정'}</button>
-            <button class="backlink" style="margin:0 0 0 6px;color:var(--rose-600,#e11d48)" onclick="pickGradeSimilar(${c.gc_id},'exclude')">제외</button></td></tr>`).join('')}
+          <td style="white-space:nowrap"><button class="backlink" style="margin:0;text-decoration:underline" onclick="gv.modal=${i};renderGradeDetail()">상세보기</button></td></tr>`).join('')}
         </tbody></table></div>` : '';
     right = `<div style="flex:1;min-width:280px">${crit}${sim}</div>`;
   }
@@ -657,7 +655,7 @@ async function runGradePredict(){
   gv.predLoading = true; gv.pred = null; renderGradeDetail();
   try{
     const res = await fetch('/grade-predict',{method:'POST',headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({disease_name:name, body_part:gv.part, n:5, ga_id: gv.ga?.ga_id||null})});
+      body: JSON.stringify({disease_name:name, body_part:gv.part, n:5})});
     gv.pred = res.ok ? await res.json() : {error:`서버 오류(${res.status})`};
     if(gv.pred.grade1===null && gv.pred.note) gv.pred = {error: gv.pred.note};
   }catch(e){ gv.pred = {error:'요청 실패 — API 서버 상태를 확인하세요'}; }
@@ -668,15 +666,6 @@ async function runGradePredict(){
       `${esc(name)} → ${esc(gv.pred.grade1||'')}`, null, true);
   }
 }
-async function pickGradeSimilar(gcId, kind){
-  let note = null;
-  if(kind==='exclude'){ note = prompt('제외 사유 (감사 추적용, 생략 가능)') || null; }
-  await fetch('/similar-picks',{method:'POST',headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({scope:'grade', ga_id: gv.ga?.ga_id, case_id: gcId, kind, note})});
-  if(gv.ga) logGradeEvent(gv.ga.ga_id, 'AI예측', `유사사례 ${kind==='exclude'?'제외':kind==='pin'?'고정':'해제'}`, '담당자', `사례 ${gcId}`, null);
-  runGradePredict();  // 선별 반영 재예측
-}
-
 function gradeModal(){
   if(gv.modal===null || !gv.pred || !gv.pred.similar) return '';
   const c = gv.pred.similar[gv.modal]; if(!c) return '';
@@ -736,8 +725,8 @@ function sec1(){
       <dt>신청인</dt><dd>${esc(s.applicant)}${s.is_real?' <span class="realtag">실데이터</span>':''} (${s.birth_year?s.birth_year+'년생, ':''}${esc(s.duty_type)})</dd>
       <dt>접수번호 / 차수</dt><dd class="mono">${esc(s.recv_no)} / ${s.round}차</dd>
       <dt>심의내용</dt><dd>${esc(s.review_content)}${s.is_death?' <span class="note">(사망 사건)</span>':''}</dd></dl>
-    <h4>가. 신청경위 <span class="mut">(언제·어디서·무엇을·어떻게·왜)</span></h4>
-    <p class="lead">${esc(s.apply_story)}</p>
+    <h4 data-src="1-1 신청서 · 요건발급요청서">가. 신청경위 <span class="mut">(언제·어디서·무엇을·어떻게·왜 · 수정 시 판단문에 반영)</span></h4>
+    ${editBlock('apply_story', s.apply_story, null, '1-1 신청서 · 요건발급요청서')}
     ${(s.apply_history&&s.apply_history.length)?`
     <h4>재신청 이력 <span class="mut">(${esc(s.apply_kind)} 사건 — 과거 신청·처분 경과)</span></h4>
     <div class="tblcard" style="margin-bottom:14px"><table class="ds" style="min-width:0"><thead><tr>
@@ -748,11 +737,12 @@ function sec1(){
         <td style="white-space:normal">${esc(h.summary)}</td>
         <td><span class="res ${/해당\(|인정/.test(h.result||'')&&!/비해당/.test(h.result||'')?'yes':'no'}">${esc(h.result||'')}</span></td></tr>`).join('')}
       </tbody></table></div>`:''}
-    <h4>현재시점 후유증·합병증</h4><div class="card">${dash(s.aftermath)}</div>
+    <h4 data-src="1-1 신청서 (신청인 진술)">현재시점 후유증·합병증</h4>${editBlock('aftermath', s.aftermath, null, '1-1 신청서 (신청인 진술)')}
     ${evToggle('s1', s.disabilities.map(d=>'국가유공자 요건 사실 확인서 —' + d.name))}
     <h4>나. 신청상이</h4>` +
-    s.disabilities.map(d=>`<div class="card"><div class="t">${esc(d.name)} <span class="mono">— ${dash(d.body_side)} · KCD ${esc(d.kcd_code)}</span></div>
-      발병년월 ${esc(d.onset_ym)} · ${esc(d.onset_story)}</div>`).join('') +
+    s.disabilities.map(d=>`<div class="card" data-src="요건심의 의뢰공문 · 부위 불명확 시 전화조사" id="eb_onset_story_${d.dis_id}"><div class="t">${esc(d.name)} <span class="mono">— ${dash(d.body_side)} · KCD ${esc(d.kcd_code)}</span></div>
+      <span class="ebval">발병년월 ${esc(d.onset_ym)} · ${esc(d.onset_story)}</span>
+      <button class="rowact backlink" style="margin-left:8px" onclick="startEdit('onset_story',${d.dis_id})">✎ 수정</button></div>`).join('') +
     (s.apply_story
       ? aiReview('완료', '신청경위(육하원칙)와 신청상이 기재가 확인됩니다.')
       : aiReview('부족', '신청경위 기재가 없습니다 — 신청서 원문 확인이 필요합니다.'));
@@ -760,17 +750,18 @@ function sec1(){
 function sec2(){
   const s = doc, sv = s.service || {};
   $('paper').innerHTML = `<div class="crumb">2. 관련자료 › 병적 · 요건 사실 확인 · 의무기록</div>
-    <h4>가. 병적관련자료</h4>
-    <div class="card"><dl class="kv">
+    <h4 data-src="1-4 병적증명서 · 병적기록표/인사자력표">가. 병적관련자료</h4>
+    <div class="card" data-src="1-4 병적증명서 · 인사자력표"><dl class="kv">
       <dt>입대 / 전역</dt><dd>${dash(sv.enlist_date)} / ${sv.discharge_date?esc(sv.discharge_date):'복무중'}</dd>
       <dt>병과·특기</dt><dd>${dash(sv.branch)}</dd><dt>근무경력</dt><dd>${dash(sv.career)}</dd>
       <dt>휴가내역</dt><dd>${dash(sv.leave_note)}</dd>
       ${sv.overtime?`<dt>초과근무·특별업무</dt><dd>${esc(sv.overtime)}</dd>`:''}</dl></div>
       ${evToggle('s2', ['병적증명서·인사자력표'].concat(s.disabilities.flatMap(d=>d.medical.map(m=>m.hospital + ' ' + m.rec_type + ' (' + (m.rec_date || '-') + ')'))))}
-    <h4>나. 국가유공자 요건 사실 확인서</h4>` +
-    s.disabilities.map(d=>`<div class="card"><div class="t">${esc(d.name)}</div>
-      상이연월일 ${dash(d.fact_date)} · 상이장소 ${dash(d.fact_place)} · 최초부상명 ${dash(d.fact_first_dx)}</div>`).join('') +
-    `<h4>다. 의무기록 <span class="mut">(시간순 · 음영 = 중요문서)</span></h4>` +
+    <h4 data-src="1-4 국가유공자 요건 사실 확인서 (소속기관 통보)">나. 국가유공자 요건 사실 확인서</h4>` +
+    s.disabilities.map(d=>`<div class="card" data-src="1-4 요건사실확인서" id="fact_${d.dis_id}"><div class="t">${esc(d.name)}</div>
+      <span class="ebval">상이연월일 ${dash(d.fact_date)} · 상이장소 ${dash(d.fact_place)} · 최초부상명 ${dash(d.fact_first_dx)}</span>
+      <button class="rowact backlink" style="margin-left:8px" onclick="startFactEdit(${d.dis_id})">✎ 수정</button></div>`).join('') +
+    `<h4 data-src="1-3 의무기록사본증명서 · 2-1-1 전체 의무기록">다. 의무기록 <span class="mut">(시간순 · 음영 = 중요문서)</span></h4>` +
     s.disabilities.map(d=>`<div class="card"><div class="t">${esc(d.name)}</div>
       <table class="med"><thead><tr><th>일자</th><th>시기</th><th>기관</th><th>구분</th><th>진단·소견</th><th>급성/진구성</th></tr></thead>
       <tbody>${d.medical.map(m=>{
@@ -800,16 +791,15 @@ function sec3(){
     `<h4>나. 본 건 판단의 전제 — 유사사례 <span class="mut">(선별 결과가 AI 사전판단·판단문 생성에 반영)</span></h4>` +
     s.disabilities.map(d=>`
       <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin:8px 0 4px">${esc(d.name)}
-        <button class="btn outline sm" onclick="openS3Modal(${d.dis_id})">＋ 사례 추가</button>
-        <button class="btn outline sm" onclick="resetPicks(${d.dis_id})">선별 초기화</button></div>
+        <button class="btn outline sm" onclick="openS3Modal(${d.dis_id})">＋ 사례 추가</button></div>
       ${d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:10px;align-items:baseline;padding:8px 14px">
         <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
         ${x.pick==='pin'?'<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★</span>':''}
         <span style="flex:1">${x.summary?esc(String(x.summary)).slice(0,110):`과거사례 ${esc(String(x.case_id))}`}
           <span class="mono" style="font-size:11px;color:var(--slate-400)"> ${(x.matched_codes||x.kcd_codes||[]).map(esc).join(', ')}</span>
           ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}</span>
-        <button class="backlink" style="margin:0" onclick="pickSimilar(${d.dis_id},${x.case_id},'${x.pick==='pin'?'clear':'pin'}')">${x.pick==='pin'?'해제':'★고정'}</button>
-        <button class="backlink" style="margin:0 0 0 6px;color:#e11d48" onclick="pickSimilar(${d.dis_id},${x.case_id},'exclude')">제외</button></div>`).join('')
+        <button class="backlink rowact" style="margin:0" onclick="pickSimilar(${d.dis_id},${x.case_id},'${x.pick==='pin'?'clear':'pin'}')">${x.pick==='pin'?'해제':'★고정'}</button>
+        <button class="backlink rowact" style="margin:0 0 0 6px;color:#e11d48" onclick="pickSimilar(${d.dis_id},${x.case_id},'exclude')">제외</button></div>`).join('')
         :'<div class="mutetxt" style="margin:4px 0">유사사례 없음 — [사례 추가]로 직접 검색해 넣을 수 있습니다</div>'}`).join('') +
     `<h4>다. 의학정보·분과 판단기준 <span class="mut">(${esc(s.subcommittee_info.name)} 매뉴얼 RAG)</span></h4>` +
     s.disabilities.map(d=>d.criteria.map(c=>`<div class="card soft"><div class="t">${esc(d.name)}</div>
@@ -820,6 +810,54 @@ function sec3(){
       if(nc) return aiReview('미흡',`동일 상이처 과거 비해당 판정 ${nc}건이 있습니다 — 본 건과의 사실관계 차이 검토가 필요합니다.`);
       return aiReview('완료','관계법령 조항과 분과 판단기준 대조가 완료되었습니다.');
     })() + s3ModalHtml();
+}
+
+/* ── 항목 인라인 편집 (텍스트박스) — 수정 즉시 반영 + 교정쌍 축적(field_edit) ── */
+function editBlock(field, value, disId, src){
+  return `<div class="card" ${src?`data-src="${esc(src)}"`:''} id="eb_${field}_${disId||0}">
+    <span class="ebval" style="white-space:pre-wrap">${esc(value||'—')}</span>
+    <button class="rowact backlink" style="margin-left:8px" onclick="startEdit('${field}',${disId||'null'})">✎ 수정</button></div>`;
+}
+function getField(field, disId){
+  if(disId){ const d=doc.disabilities.find(x=>x.dis_id===disId); return (d&&d[field])||''; }
+  return doc[field]||'';
+}
+function startEdit(field, disId){
+  const el = $(`eb_${field}_${disId||0}`); if(!el) return;
+  el.innerHTML = `<textarea id="ta_${field}_${disId||0}" style="width:100%;min-height:80px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;line-height:20px;font-family:inherit">${esc(getField(field,disId))}</textarea>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+      <button class="btn outline sm" onclick="showSec(curSec)">취소</button>
+      <button class="btn primary sm" onclick="saveEdit('${field}',${disId||'null'})">저장</button></div>`;
+  $(`ta_${field}_${disId||0}`).focus();
+}
+async function saveEdit(field, disId){
+  const v = ($(`ta_${field}_${disId||0}`)?.value||'').trim();
+  await fetch(`/cases/${doc.app_id}/field`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({field, value:v, dis_id:disId})});
+  logEvent('담당자', `항목 수정(${field}) — 교정쌍 축적, 이후 판단문·정규화에 반영`);
+  doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  showSec(curSec);
+}
+function startFactEdit(disId){
+  const el = $(`fact_${disId}`); if(!el) return;
+  const d = doc.disabilities.find(x=>x.dis_id===disId)||{};
+  const inp = (f,v,ph)=>`<input id="fi_${f}_${disId}" value="${esc(v||'')}" placeholder="${ph}" style="flex:1;padding:6px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px">`;
+  el.innerHTML = `<div class="t">${esc(d.name||'')}</div>
+    <div style="display:flex;gap:6px;margin:6px 0">
+      ${inp('fact_date', d.fact_date, '상이연월일')}${inp('fact_place', d.fact_place, '상이장소')}${inp('fact_first_dx', d.fact_first_dx, '최초부상명')}</div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn outline sm" onclick="showSec(curSec)">취소</button>
+      <button class="btn primary sm" onclick="saveFactEdit(${disId})">저장</button></div>`;
+}
+async function saveFactEdit(disId){
+  for(const f of ['fact_date','fact_place','fact_first_dx']){
+    const v = ($(`fi_${f}_${disId}`)?.value||'').trim();
+    await fetch(`/cases/${doc.app_id}/field`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({field:f, value:v, dis_id:disId})});
+  }
+  logEvent('담당자', `요건사실확인서 수정(상이처 ${disId}) — 교정쌍 축적`);
+  doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  showSec(curSec);
 }
 
 /* ── 3장 유사사례 '사례 추가' 팝업 — 기본은 인라인 리스트, 추가 버튼 시에만 ── */
@@ -838,6 +876,7 @@ function s3ModalHtml(){
         <input id="simq${d.dis_id}" value="${esc(s3LastQ)}" placeholder="요약문 키워드 또는 KCD 코드로 검색" style="flex:1;padding:8px 12px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px" onkeydown="if(event.key==='Enter')searchSimilar(${d.dis_id})">
         <button class="btn primary sm" onclick="searchSimilar(${d.dis_id})">검색</button></div>
       <div id="simres${d.dis_id}"><div class="mutetxt">검색어를 입력하세요 — 과거사례 풀에서 찾아 ★추가할 수 있습니다.</div></div>
+      <div style="margin-top:10px;text-align:right"><button class="backlink" style="margin:0;color:#e11d48" onclick="resetPicks(${d.dis_id})">이 상이처의 선별 전체 초기화</button></div>
     </div></div>`;
 }
 
