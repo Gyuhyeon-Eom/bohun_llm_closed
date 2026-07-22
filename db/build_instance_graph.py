@@ -32,19 +32,30 @@ _NOT_DISEASE = {"임상적추정", "병상일지", "신청사유", "의무기록
 
 def clean_diseases(raw: str | None) -> list[str]:
     """'방광암 *조기검진의뢰 to' → ['방광암'], '당뇨병,허혈성심장질환' → 두 건 분리.
+    '방광암 (C67.9)'처럼 KCD 병기는 괄호를 떼고 질환명만. LLM이 넣는 'null'류 거부.
     '폐암' 같은 2자 질환은 허용, '7초검진'류 숫자 시작·검사 계열 라벨은 거부."""
-    if not raw:
+    if not raw or raw.strip().lower() in ("null", "none", "없음", "-"):
         return []
     out = []
     for part in re.split(r"[,·/]", raw.split("*")[0]):
-        v = part.strip()
-        if (len(v) >= 2 and re.fullmatch(r"[가-힣A-Za-z0-9() ]+", v)
+        v = re.sub(r"\([^)]*\)", "", part).strip()   # 괄호 병기(KCD 등) 제거
+        if (len(v) >= 2 and re.fullmatch(r"[가-힣A-Za-z0-9 ]+", v)
                 and not v[0].isdigit()
                 and re.search(r"[가-힣]{2,}", v)
                 and v not in _NOT_DISEASE
                 and not re.search(r"검진|검사|판독|소견|기록|서류|구분|성명|번호", v)):
             out.append(v)
     return out
+
+
+def clean_grade(raw: str | None) -> str | None:
+    """상이등급 표기만 통과 — 'N급…' 또는 'N-N-NNNN'. 병리등급(G3)·'null' 거부."""
+    if not raw:
+        return None
+    v = re.sub(r"\s", "", raw)
+    if re.match(r"^\d급|^\d-\d-\d{4}$", v):
+        return v
+    return None
 
 
 def node(cur, ntype, key, name=None, meta=None):
@@ -98,7 +109,13 @@ def main():
             sd_kcds = []
             for b in blocks:
                 f, nm = b.get("fields") or {}, b.get("norm") or {}
-                for d in clean_diseases(nm.get("disease") or f.get("disease")):
+                llm_norm = nm.get("source") == "llm"
+                # 질환은 '언급' 수집이므로 규칙∪LLM 합집합 (LLM 누락을 규칙이 보완).
+                # 등급은 오탐 비용이 커서 LLM 정제가 있으면 그 판단만 신뢰
+                # (예: 수술기록 도장 텍스트 '1급'을 규칙은 등급으로 오탐, LLM은 null 처리).
+                _dis = dict.fromkeys(clean_diseases(nm.get("disease"))
+                                     + clean_diseases(f.get("disease")))
+                for d in _dis:
                     if d not in diseases:
                         dn = diseases[d] = node(cur, "disease", d)
                         # 판단기준룰 연결 (jr_disease.key = 정규식 패턴)
@@ -116,9 +133,9 @@ def main():
                     if kcd not in kcd_ix:
                         kcd_ix[kcd] = node(cur, "kcd", kcd)
                     sd_kcds.append((kcd_ix[kcd], b.get("doc")))
-                g = nm.get("grade") or f.get("grade")
+                g = (clean_grade(nm.get("grade")) if llm_norm
+                     else clean_grade(nm.get("grade")) or clean_grade(f.get("grade")))
                 if g:
-                    g = re.sub(r"\s+", "", g)
                     if g not in grades:
                         grades[g] = node(cur, "grade", g)
                     edge(cur, sd_n, grades[g], "ASSIGNS_GRADE",
