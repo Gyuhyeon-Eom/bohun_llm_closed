@@ -56,6 +56,15 @@ def answer(question: str, llm: LLMClient, emb, doc_type: str | None = None,
             graph_ctx += "[판단기준 그래프 — 정형화틀 v2.4]\n" + "\n".join(facts) + "\n---\n"
     except Exception:
         pass  # 그래프 미적재 환경에서도 챗봇은 동작
+    # 그래프 RAG (core/graph_rag.py): 질의 엔티티(인명·질환·KCD)를 지식그래프에서
+    # 다중홉 확장 — 벡터 검색이 못 잡는 관계 질의(누가·몇 건·필요서류)를 결정적 보강.
+    try:
+        from core.graph_rag import graph_facts
+        gf = graph_facts(question)
+        if gf["facts"]:
+            graph_ctx += "[지식그래프 — 실데이터 연결]\n" + "\n".join(gf["facts"]) + "\n---\n"
+    except Exception:
+        pass
     hist = "\n".join(
         f"{'담당자' if m.get('role') == 'user' else 'AI'}: {str(m.get('text', ''))[:300]}"
         for m in (history or [])[-6:]) or "(없음)"
