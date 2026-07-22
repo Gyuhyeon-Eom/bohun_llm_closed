@@ -494,12 +494,19 @@ def export_batch(app_ids: list[int], emb, fmt: str = "txt") -> tuple[str, str]:
 def export_pdf(app_id: int, emb, dis_id: int | None = None) -> tuple[str, str]:
     """reportlab으로 한글 PDF 생성. reportlab 미설치 시 함수 호출 시점에만 오류."""
     import os, tempfile
+    title, text = _full_text(app_id, emb, dis_id)
+    path = os.path.join(tempfile.gettempdir(), f"{title}.pdf")
+    _text_to_pdf(text, path)
+    return f"{title}.pdf", path
+
+
+def _text_to_pdf(text: str, path: str) -> None:
+    """본문 텍스트 → 한글 PDF (실측 폭 줄바꿈·들여쓰기 보존). 조립 의결서도 재사용."""
+    import os
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
-
-    title, text = _full_text(app_id, emb, dis_id)
     # 한글 폰트 등록 (시스템 폰트 후보 탐색)
     font_name = "Helvetica"
     # 한글 폰트 등록: 여러 후보 탐색. (경로, subfontIndex) — .ttc는 인덱스 필요할 수 있음
@@ -535,7 +542,6 @@ def export_pdf(app_id: int, emb, dis_id: int | None = None) -> tuple[str, str]:
             registered = True
         except Exception:
             pass
-    path = os.path.join(tempfile.gettempdir(), f"{title}.pdf")
     c = canvas.Canvas(path, pagesize=A4)
     W, H = A4
     x, y = 42, H - 50
@@ -573,4 +579,3 @@ def export_pdf(app_id: int, emb, dis_id: int | None = None) -> tuple[str, str]:
             c.drawString(x, y, pline)
             y -= 13
     c.save()
-    return f"{title}.pdf", path

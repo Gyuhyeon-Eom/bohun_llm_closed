@@ -388,3 +388,9 @@ table.ds tbody tr{transition:background .15s}
 .diffbody{padding:10px 12px;font-size:12.5px;line-height:21px;white-space:pre-wrap}
 .diffbody del{background:#fee2e2;color:#b91c1c;text-decoration:line-through;border-radius:2px;padding:0 1px}
 .diffbody ins{background:#dcfce7;color:#15803d;text-decoration:none;border-radius:2px;padding:0 1px}
+
+/* 심의서 통합 작성 — 란별 체크리스트 */
+.dchks{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-strong)}
+.dchk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--slate-700);cursor:pointer}
+.dchk input{accent-color:#1b3a7a}
+.dchk.req{font-weight:600}

@@ -324,6 +324,64 @@ class GradePredictReq(BaseModel):
     ga_id: int | None = None   # 담당자 유사사례 선별 반영용
 
 
+class DraftSaveReq(BaseModel):
+    content: str
+    editor: str = "담당자"
+
+
+class DraftCheckReq(BaseModel):
+    idx: int
+    checked: bool
+
+
+@app.get("/case-draft/{app_id}")             # 심의서 통합 작성 — 란별 초안·체크 상태
+def api_case_draft(app_id: int):
+    from services import case_draft
+    return {"drafts": case_draft.get_all(app_id), "gate": case_draft.required_done(app_id)}
+
+
+@app.post("/case-draft/{app_id}/{section}/generate")   # 란 초안 LLM 생성 (정형화틀 모듈 주입)
+def api_case_draft_generate(app_id: int, section: str):
+    from services import case_draft
+    from core.llm_client import LLMUnavailable
+    try:
+        return case_draft.generate(app_id, section, get_llm(), _emb)
+    except LLMUnavailable as e:
+        return {"error": str(e)}
+
+
+@app.post("/case-draft/{app_id}/{section}/save")        # 담당자 수정 저장 (교정쌍 축적)
+def api_case_draft_save(app_id: int, section: str, req: DraftSaveReq):
+    from services import case_draft
+    return case_draft.save(app_id, section, req.content, req.editor)
+
+
+@app.post("/case-draft/{app_id}/{section}/check")       # 란 체크리스트 토글
+def api_case_draft_check(app_id: int, section: str, req: DraftCheckReq):
+    from services import case_draft
+    return case_draft.set_check(app_id, section, req.idx, req.checked)
+
+
+@app.get("/decision-doc/{app_id}/export-assembled")     # 의결서 조립 산출 (LLM 미사용)
+def api_export_assembled(app_id: int, fmt: str = "txt"):
+    import tempfile
+    from services import case_draft
+    gate = case_draft.required_done(app_id)
+    if not gate["ok"]:
+        return {"error": "필수 체크리스트·란 작성 미완료", **gate}
+    text = case_draft.assemble(app_id)
+    if fmt == "pdf":
+        from services.decision_doc import _text_to_pdf
+        fname = f"심의의결서_조립_{app_id}.pdf"
+        path = os.path.join(tempfile.gettempdir(), fname)
+        _text_to_pdf(text, path)
+        return FileResponse(path, filename=fname, media_type="application/pdf")
+    fname = f"심의의결서_조립_{app_id}.txt"
+    path = os.path.join(tempfile.gettempdir(), fname)
+    open(path, "w", encoding="utf-8").write(text)
+    return FileResponse(path, filename=fname, media_type="text/plain; charset=utf-8")
+
+
 class FieldEditReq(BaseModel):
     field: str
     value: str

@@ -18,7 +18,9 @@
 const $ = id => document.getElementById(id);
 const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const dash = t => t == null || t === '' ? '—' : esc(t);
-const SECTIONS = ['1. 신청사항', '2. 관련자료', '3. 관계법령·판단', '4. 종합판단'];
+const SECTIONS = ['심의서 작성 (1~3장)', '4. 종합판단'];
+// 통합 작성 페이지 상태: 란별 초안·체크 (서버 case_draft) / 편집 중 란
+let caseDrafts = null, draftGate = null, draftEditing = null;
 const SNB_ITEMS = ['민원접수','심사등록','보상급여','제대군인','의료지원','보훈복지','상이판정','대부지원','교육지원','취업지원','업무지원','시스템관리'];
 
 let cases = [], selId = null, doc = null;
@@ -215,6 +217,9 @@ async function enterCase(id){
     new Promise(r=>setTimeout(r, 900)),
   ].slice(0,3));
   fieldEdits = Array.isArray(fe) ? fe : [];
+  try{ const cd = await (await fetch('/case-draft/'+id)).json(); caseDrafts = cd.drafts; draftGate = cd.gate; }
+  catch(e){ caseDrafts = null; draftGate = null; }
+  draftEditing = null;
   doc = d;
   tab='report'; curSec=0; panel='ai';
   visitedSecs = new Set(); ckState = (doc.checklist||[]).map(()=>false);
@@ -689,7 +694,7 @@ function gradeModal(){
 function showSec(i){
   curSec = i; visitedSecs.add(i);
   SECTIONS.forEach((_,n)=>{ const b=$('step'+n); if(b) b.classList.toggle('on', n===i); });
-  [sec1,sec2,sec3,sec4][i]();
+  [secDraft,sec4][i]();
   renderCkBar();
   $('paper').scrollTop = 0;
 }
@@ -720,9 +725,9 @@ function evToggle(id, files){
 }
 function toggleEv(id){ evOpen[id]=!evOpen[id]; const el=$('ev-'+id); if(el) el.style.display = evOpen[id]?'':'none'; }
 
-function sec1(){
+function rawS1(){
   const s = doc;
-  $('paper').innerHTML = `<div class="crumb">1. 신청사항 › 가. 신청경위 · 나. 신청상이</div>
+  return `
     <dl class="kv" style="margin-bottom:16px">
       <dt>신청인</dt><dd>${esc(s.applicant)}${s.is_real?' <span class="realtag">실데이터</span>':''} (${s.birth_year?s.birth_year+'년생, ':''}${esc(s.duty_type)})</dd>
       <dt>접수번호 / 차수</dt><dd class="mono">${esc(s.recv_no)} / ${s.round}차</dd>
@@ -750,9 +755,9 @@ function sec1(){
       ? aiReview('완료', '신청경위(육하원칙)와 신청상이 기재가 확인됩니다.')
       : aiReview('부족', '신청경위 기재가 없습니다 — 신청서 원문 확인이 필요합니다.'));
 }
-function sec2(){
+function rawS2(){
   const s = doc, sv = s.service || {};
-  $('paper').innerHTML = `<div class="crumb">2. 관련자료 › 병적 · 요건 사실 확인 · 의무기록</div>
+  return `
     <h4 data-src="1-4 병적증명서 · 병적기록표/인사자력표">가. 병적관련자료</h4>
     <div class="card" data-src="1-4 병적증명서 · 인사자력표"><dl class="kv">
       <dt>입대 / 전역</dt><dd>${dash(sv.enlist_date)} / ${sv.discharge_date?esc(sv.discharge_date):'복무중'}</dd>
@@ -779,9 +784,9 @@ function sec2(){
       return n ? aiReview('완료', `의무기록 ${n}건을 시간순으로 대조 완료했습니다.`)
                : aiReview('부족', '의무기록이 없습니다 — 진료내역 보완이 필요합니다.'); })();
 }
-function sec3(){
+function rawS3(){
   const s = doc;
-  $('paper').innerHTML = `<div class="crumb">3. 관계법령·판단 › 법령 · 유사사례 · 분과 판단기준</div>
+  return `
     <h4>가. 관련법령 <span class="mut">(신분 기준 자동 결정 · 원문 발췌 RAG)</span></h4>` +
     s.laws.map(l=>`<div class="card"><div class="t mono" style="font-size:12px">${esc(l.clause)}</div>
       ${l.passage?esc(l.passage):'<span class="mutetxt">원문 미적재 — scripts/ingest_laws.py 실행 필요</span>'}</div>`).join('') +
@@ -819,7 +824,8 @@ function sec3(){
 /* ── 항목 인라인 편집 (텍스트박스) — 수정 즉시 반영 + 교정쌍 축적(field_edit) ── */
 let fieldEdits = [];   // 이 사건의 수정 이력 (서버 field_edit)
 const FIELD_LABEL = {apply_story:'신청경위', aftermath:'후유증·합병증', onset_story:'신청상이 경위',
-  fact_date:'상이연월일', fact_place:'상이장소', fact_first_dx:'최초부상명', review_content:'심의내용'};
+  fact_date:'상이연월일', fact_place:'상이장소', fact_first_dx:'최초부상명', review_content:'심의내용',
+  draft_s1:'심의서 1장 (신청사항)', draft_s2:'심의서 2장 (관련자료)', draft_s3:'심의서 3장 (관계법령·판단의 전제)'};
 function editCount(field, disId){
   return fieldEdits.filter(e=>e.field===field && (e.dis_id||0)===(disId||0)).length;
 }
@@ -967,6 +973,81 @@ async function searchSimilar(disId){
     : '<div class="mutetxt">검색 결과 없음</div>';
 }
 
+/* ── 심의서 통합 작성 페이지 (1~3장): 란별 LLM 초안 → 텍스트박스 수정 → 체크 ── */
+let rawOpen = {s1:false, s2:false, s3:false};
+const RAW_FN = {s1:()=>rawS1(), s2:()=>rawS2(), s3:()=>rawS3()};
+async function loadDrafts(){
+  const cd = await (await fetch('/case-draft/'+doc.app_id)).json();
+  caseDrafts = cd.drafts; draftGate = cd.gate;
+  fieldEdits = await (await fetch('/field-edits/'+doc.app_id)).json();
+}
+function secDraft(){
+  if(!caseDrafts){ $('paper').innerHTML = '<div class="mutetxt"><span class="loading">초안 상태 불러오는 중</span></div>';
+    loadDrafts().then(()=>{ if(curSec===0) showSec(0); }); return; }
+  const lan = (sec)=>{
+    const d = caseDrafts[sec];
+    const editing = draftEditing === sec;
+    const body = editing
+      ? `<textarea id="dta_${sec}" style="width:100%;min-height:220px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;line-height:21px;font-family:inherit">${esc(d.content||'')}</textarea>
+         <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+           <button class="btn outline sm" onclick="draftEditing=null;showSec(0)">취소</button>
+           <button class="btn primary sm" onclick="saveDraft('${sec}')">저장</button></div>`
+      : (d.content
+          ? `<div class="card soft" style="white-space:pre-wrap;line-height:22px;font-size:13px">${esc(d.content)}</div>`
+          : `<div class="mutetxt" style="margin:6px 0">미작성 — [AI 초안 생성]을 누르면 사건 자료·분과모듈 기반으로 작성됩니다.</div>`);
+    const checks = d.checks.map((c,i)=>`<label class="dchk${c.required?' req':''}">
+        <input type="checkbox" ${c.checked?'checked':''} onchange="toggleDraftCheck('${sec}',${i},this.checked)">
+        ${c.required?'<b style="color:#b91c1c">*</b> ':''}${esc(c.label)}</label>`).join('');
+    return `<div class="card" style="margin-bottom:18px;padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:14px;font-weight:700">${esc(d.title)}</span>
+        ${d.source?`<span class="stepchip" style="${d.source==='manual'?'background:#eff6ff;color:#1d4ed8':''}">${d.source==='manual'?'담당자 수정본':'AI 초안'}</span>`:''}
+        ${editedBadge('draft_'+sec, null)}
+        <span style="flex:1"></span>
+        <button class="btn outline sm" id="gen_${sec}" onclick="genDraft('${sec}')">${icon('IconWand',12)} ${d.content?'AI 재생성':'AI 초안 생성'}</button>
+        ${d.content&&!editing?`<button class="btn outline sm" onclick="draftEditing='${sec}';showSec(0)">✎ 수정</button>`:''}
+      </div>
+      ${body}
+      <div class="dchks">${checks}</div>
+      <details ${rawOpen[sec]?'open':''} ontoggle="rawOpen['${sec}']=this.open">
+        <summary class="mutetxt" style="cursor:pointer;font-size:12px;margin-top:8px">근거 자료 원본 펼치기 (${d.title.replace(/^\d+\. /,'')} 상세)</summary>
+        <div style="margin-top:10px">${RAW_FN[sec]()}</div>
+      </details>
+    </div>`;
+  };
+  const gate = draftGate || {ok:false, missing_checks:[], empty_sections:[]};
+  const gateMsg = gate.ok
+    ? `<span class="res yes">조립 가능</span> 필수 체크 완료 — 심의의결서는 아래 확정 텍스트를 <b>LLM 없이</b> 그대로 결합합니다.`
+    : `<span class="res hold">대기</span> ${[...gate.empty_sections.map(x=>x+' 미작성'), ...gate.missing_checks.map(x=>'필수: '+x)].slice(0,3).map(esc).join(' · ')}${(gate.missing_checks.length+gate.empty_sections.length)>3?' 외':''}`;
+  $('paper').innerHTML = `<div class="crumb">심의서 작성 › 란별 AI 초안(정형화틀 모듈 기반) → 담당자 수정·체크 → 의결서 조립(LLM 미사용)</div>
+    ${lan('s1')}${lan('s2')}${lan('s3')}
+    <div class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+      <div style="flex:1;font-size:12.5px">${gateMsg}</div>
+      <button class="btn outline sm" ${gate.ok?'':'disabled'} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=txt','_blank')">${icon('IconDownload',13)} 조립 TXT</button>
+      <button class="btn primary sm" ${gate.ok?'':'disabled'} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=pdf','_blank')">${icon('IconDownload',13)} 조립 PDF</button>
+    </div>` + s3ModalHtml();
+}
+async function genDraft(sec){
+  const b = $('gen_'+sec); if(b){ b.disabled = true; b.innerHTML = '<span class="loading">생성 중</span>'; }
+  const r = await (await fetch(`/case-draft/${doc.app_id}/${sec}/generate`, {method:'POST'})).json();
+  if(r.error) alert(r.error);
+  logEvent('AI 자동생성', `심의서 ${sec} 란 초안 생성 (정형화틀 모듈 주입)`);
+  await loadDrafts(); showSec(0);
+}
+async function saveDraft(sec){
+  const v = ($('dta_'+sec)?.value||'').trim();
+  await fetch(`/case-draft/${doc.app_id}/${sec}/save`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({content: v})});
+  logEvent('담당자', `심의서 ${sec} 란 수정 저장 — 교정쌍 축적`);
+  draftEditing = null;
+  await loadDrafts(); showSec(0);
+}
+async function toggleDraftCheck(sec, idx, checked){
+  await fetch(`/case-draft/${doc.app_id}/${sec}/check`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({idx, checked})});
+  await loadDrafts(); showSec(0);
+}
+
 function sec4(){
   const s = doc;
   $('paper').innerHTML = `<div class="crumb">4. 종합판단 › 상이처별 이원 판단(국가유공자/보훈보상) 선택 → 판단내용 생성 → 담당자 확정</div>
@@ -1047,7 +1128,7 @@ async function judge(disId){
   doc = await (await fetch('/decision-doc/'+selId)).json();
   const d = doc.disabilities.find(x=>x.dis_id===disId);
   logEvent('AI 자동생성', `4. 종합판단 - ${d?d.name:disId} 판단내용 초안 생성 (${yeu.value}/${bo.value})`);
-  showSec(3);
+  showSec(1);
   document.getElementById('dis'+disId)?.scrollIntoView({behavior:'smooth', block:'center'});
 }
 async function finalize(disId){
@@ -1060,7 +1141,7 @@ async function finalize(disId){
   if(body != null && body.trim() !== before.trim())
     logEvent('담당자', `4. 종합판단 - ${d?d.name:disId} 판단문안 수정`);
   logEvent('담당자', `4. 종합판단 - ${d?d.name:disId} 담당자 확정`);
-  showSec(3);
+  showSec(1);
 }
 
 /* ── 우측 아이콘 레일 + 패널 (BNM-U00-0104~0107) ── */
@@ -1139,7 +1220,7 @@ function renderCkBar(){
   if(tab!=='report'){ bar.style.display='none'; return; }
   bar.style.display = '';
   const done = ckState.filter(Boolean).length;
-  const unread = [0,1,2,3].filter(i=>!visitedSecs.has(i));   // 표시용 (게이트 아님)
+  const unread = [0,1].filter(i=>!visitedSecs.has(i));   // 표시용 (게이트 아님)
   // 다운로드 규칙: ① 분과 체크리스트 전부 체크 + ② 모든 상이처의 판단내용(4장) 생성 완료
   const checklistOk = !items.length || done === items.length;
   const judged = (doc.disabilities||[]).length

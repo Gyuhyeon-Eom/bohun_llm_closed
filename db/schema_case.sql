@@ -297,3 +297,16 @@ CREATE TABLE IF NOT EXISTS field_edit (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_field_edit_app ON field_edit(app_id);
+
+-- ── 심의서 통합 작성 (260722): 1~3장 란별 LLM 초안 + 담당자 수정 + 란별 체크리스트 ──
+-- 의결서 산출은 이 초안 텍스트를 LLM 없이 조립한다 (초안=LLM, 확정=담당자, 산출=결정적).
+CREATE TABLE IF NOT EXISTS case_draft (
+  cd_id      BIGSERIAL PRIMARY KEY,
+  app_id     BIGINT NOT NULL,
+  section    TEXT NOT NULL,                 -- s1(신청사항)/s2(관련자료)/s3(관계법령·판단전제)
+  content    TEXT,
+  source     TEXT DEFAULT 'llm',            -- llm(초안) | manual(담당자 수정)
+  checks     JSONB,                         -- 란별 체크리스트 상태 [{label,required,checked}]
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (app_id, section)
+);
