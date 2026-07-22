@@ -98,9 +98,13 @@ def _severity(grade):
 
 
 def _proposed(it, pred):
-    """상이처별 제안등급 — 신검등급(신체검사 실측 판정) 기반. 실물 양식과 동일하게
+    """상이처별 제안등급 — 담당자 확정값(proposed_grade, 상세 화면 심사표 편집분) 최우선,
+    다음 신검등급(신체검사 실측 판정) 기반. 실물 양식과 동일하게
     신검등급을 제안값으로 쓰고, AI 별표3 대조 예측은 참고로만 병기한다
     (예측이 상병명 텍스트만 대조하므로 실측과 동떨어진 등급이 나올 수 있음)."""
+    ov = (it.get("proposed_grade") or "").strip()
+    if ov and ov != "—":
+        return ov
     eg = (it.get("exam_grade") or "").strip()
     if eg and eg != "—":
         return eg

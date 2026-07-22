@@ -211,10 +211,28 @@ def api_cases():
                               a.review_content, a.subcommittee, a.round, a.status, a.apply_kind, a.track,
                               a.is_real,
                               array_agg(d.name || COALESCE('('||d.body_side||')','')) AS dis_names,
-                              array_agg(d.kcd_code) AS kcd_codes
+                              array_agg(d.kcd_code) AS kcd_codes,
+                              (SELECT count(*) FROM case_draft cd
+                                WHERE cd.app_id=a.app_id AND cd.content IS NOT NULL AND cd.content<>'') AS n_draft,
+                              count(d.dis_id) AS n_dis,
+                              (SELECT count(*) FROM conclusion c
+                                WHERE c.app_id=a.app_id AND c.round=a.round AND c.body_text IS NOT NULL) AS n_body,
+                              (SELECT count(*) FROM conclusion c
+                                WHERE c.app_id=a.app_id AND c.round=a.round AND c.status='확정') AS n_fixed
                        FROM application a LEFT JOIN disability d USING (app_id)
                        GROUP BY a.app_id ORDER BY a.app_id""")
-        return cur.fetchall()
+        rows = cur.fetchall()
+    # 목록 단계 표시 — 접수→작성→판단→확정 (요건심사 화면설계 260722: 목록에 진행단계 컬럼)
+    for r in rows:
+        if r["n_dis"] and r["n_fixed"] >= r["n_dis"]:
+            r["step"] = "확정"
+        elif r["n_body"]:
+            r["step"] = "판단"
+        elif r["n_draft"]:
+            r["step"] = "작성"
+        else:
+            r["step"] = "접수"
+    return rows
 
 
 @app.post("/cases/demo-seed")         # 정형화틀 기반 목데이터 6건 생성
@@ -566,6 +584,45 @@ def api_grade_log(ga_id: int):
                 "logs": cur.fetchall()}
 
 
+class GradeItemsReq(BaseModel):
+    items: list[dict]                  # 심사표 편집분 (상이처별 행)
+
+
+@app.post("/grade-agendas/{ga_id}/items")   # 심사표 상이처별 값 수정 저장 (화면설계 260722)
+def api_grade_items_save(ga_id: int, req: GradeItemsReq):
+    """상세 화면의 수정가능 심사표 저장 — injury_items(JSONB) 갱신.
+    화이트리스트 키만 반영하고, 담당자 확정 제안등급(proposed_grade)은 XLSX 산출에도 우선 적용된다."""
+    import json
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    from services.grade_export import _items
+    ALLOW = ("injury", "body_part", "prev_grade", "exam_dept", "exam_grade",
+             "proposed_grade", "opinion")
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM grade_agenda WHERE ga_id=%s", (ga_id,))
+        ag = cur.fetchone()
+        if not ag:
+            return {"error": "안건 없음"}
+        cur_items = _items(dict(ag))
+        for i, inc in enumerate(req.items):
+            if i >= len(cur_items):
+                cur_items.append({})
+            for k in ALLOW:
+                if k in inc:
+                    v = inc[k]
+                    cur_items[i][k] = (str(v).strip() or None) if v is not None else None
+        cur_items = cur_items[:max(len(req.items), 1)]   # 행 삭제 반영 (최소 1행 유지)
+        cur.execute("UPDATE grade_agenda SET injury_items=%s::jsonb, updated_at=now() WHERE ga_id=%s",
+                    (json.dumps(cur_items, ensure_ascii=False), ga_id))
+        cur.execute("INSERT INTO grade_log(ga_id, step, event, actor, detail, status)"
+                    " VALUES (%s,%s,%s,%s,%s,'done')",
+                    (ga_id, ag.get("progress") or "검토", "심사표 수정", "담당자",
+                     f"상이처별 행 {len(cur_items)}건 저장 (제안등급 확정값은 XLSX에 우선 반영)"))
+        conn.commit()
+    return {"ok": True, "items": cur_items}
+
+
 class GradeLogReq(BaseModel):
     step: str
     event: str
@@ -590,7 +647,7 @@ def api_grade_log_add(ga_id: int, req: GradeLogReq):
     return {"ok": True}
 
 
-@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (확정 양식 12컬럼)
+@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (확정 양식 14컬럼)
 def api_grade_export(ga_id: int):
     from services import grade_export
     fname, path = grade_export.export_xlsx(ga_id, emb=_emb)

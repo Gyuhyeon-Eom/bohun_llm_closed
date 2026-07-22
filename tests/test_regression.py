@@ -87,6 +87,14 @@ def test_proposed_prefers_exam_grade():
     assert _proposed({"exam_grade": None}, "5급 4206호") == "5급 4206호"  # 미기재 시만 AI
 
 
+def test_proposed_manual_override_first():
+    """담당자 확정값(proposed_grade, 상세 수정형 심사표 저장분)이 신검등급보다 우선 (화면설계 260722)."""
+    from services.grade_export import _proposed
+    it = {"proposed_grade": "5급 4206호", "exam_grade": "6급1항 4113호"}
+    assert _proposed(it, "2급 4105호") == "5급 4206호"
+    assert _proposed({"proposed_grade": " ", "exam_grade": "7급 8122호"}, None) == "7급 8122호"  # 공백은 무시
+
+
 def test_total_grade_most_severe():
     from services.grade_export import _total_grade
     assert _total_grade(["7급 8122호", "3급 5104호", "등급기준미달"]) == "3급 5104호"
