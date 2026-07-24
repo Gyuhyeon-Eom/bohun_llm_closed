@@ -402,3 +402,57 @@ table.ds.sheet input{width:100%;min-width:60px;border:1px solid transparent;back
 table.ds.sheet input:hover{border-color:var(--border-strong)}
 table.ds.sheet input:focus{border-color:#1b3a7a;background:var(--white);box-shadow:0 0 0 3px rgba(27,58,122,.08)}
 table.ds.sheet input::placeholder{color:var(--slate-300);font-size:11px}
+
+/* ═══ 모던 리프레시 (v0.6 화면설계 260724) — e통합보훈 톤(흰 바탕·정부 파랑) 유지 ═══ */
+:root{--blue:#1a56da;--blue-soft:#eef4ff;--primary:#1a56da;--primary-fg:#fff}
+
+/* 상단 헤더: 흰 배경 + 중앙 탭(활성 언더라인 파랑) */
+#gnav{height:58px;min-height:58px;gap:14px;box-shadow:0 1px 0 var(--border)}
+#gnav .brand{font-size:15.5px;font-weight:800;letter-spacing:-.01em}
+#gnav .tabs{margin-left:auto;margin-right:auto;gap:8px}
+#gnav .tab{padding:17px 6px 14px;margin:0 8px;border-radius:0;font-size:14px;font-weight:600;color:#5b6472;border-bottom:3px solid transparent}
+#gnav .tab.on{background:transparent;color:var(--blue);font-weight:800;border-bottom-color:var(--blue)}
+#gnav .tab:hover{background:transparent;color:var(--blue)}
+
+/* 좌측 구성 메뉴: 활성=파란 필, 하위 앵커 들여쓰기 */
+.stepmenu{width:196px;min-width:196px;padding:16px 12px}
+.stepmenu button{font-weight:600;color:#475467}
+.stepmenu button.on{background:var(--blue);color:#fff;font-weight:700}
+.stepmenu button.sub{padding-left:26px;font-size:12.5px;font-weight:500;color:#667085}
+.stepmenu button.sub:hover{color:var(--blue)}
+.cksum .bar>div{background:var(--blue)}
+
+/* 본문: 화면 타이틀·란(파란 섹션 제목)·인적사항 카드 */
+.dhead{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.dhead h2{font-size:20px;font-weight:800;margin:0;letter-spacing:-.01em}
+.card{border-radius:10px}
+.card.idcard{padding:16px 20px;margin-bottom:14px}
+.lan{border-radius:12px}
+.lan .lantitle{font-size:15px;font-weight:800;color:var(--blue)}
+#paper h4{font-size:13.5px;font-weight:700}
+.warnbar{background:#fffaeb;border:1px solid #fedf89;color:#7a4d00;border-radius:10px;padding:10px 14px;font-size:12.5px;margin:0 0 14px;line-height:20px}
+
+/* 우측 AI 질의 챗봇 패널 */
+#rpanel{width:320px;min-width:320px}
+#rail button.on{background:var(--blue)}
+.qchip{border:1px solid #c7d7fe;background:#fff;color:var(--blue);border-radius:999px;padding:3px 12px;font-size:12px;font-weight:600}
+.qchip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.pmsg{border-radius:10px;padding:8px 11px;font-size:12.5px;line-height:20px;margin-bottom:8px}
+.pmsg.user{background:var(--blue-soft);color:#1d2939;margin-left:18px}
+.pmsg.ai{background:var(--slate-50);border:1px solid var(--border);margin-right:6px}
+.pmsg.ai.err{background:#fffaeb;border-color:#fedf89}
+
+/* 상이등급 상세: 좌측 메뉴 + 본문 + 우측 관련자료 패널 3단 */
+.gwrap{display:flex;gap:20px;align-items:flex-start}
+.gside{width:168px;min-width:168px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.gside button{display:block;width:100%;text-align:left;padding:9px 12px;border:none;background:none;border-radius:8px;font-size:13px;font-weight:600;color:#475467}
+.gside button.on{background:var(--blue);color:#fff;font-weight:700}
+.gside button:hover:not(.on){background:var(--blue-soft);color:var(--blue)}
+.gmain2{flex:1;min-width:0}
+.gref{width:280px;min-width:280px;border:1px solid var(--border);border-radius:12px;background:var(--white);display:flex;flex-direction:column;max-height:80vh;position:sticky;top:0}
+.refcard{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--slate-50)}
+
+/* 표: 헤더 톤 다운, 파란 포커스 */
+table.ds th{background:#f4f6fa;color:#3d4757}
+table.ds.sheet input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,86,218,.1)}
+.gtabs button.on{color:var(--blue);border-color:var(--blue)}

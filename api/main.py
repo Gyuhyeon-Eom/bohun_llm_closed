@@ -661,14 +661,6 @@ def api_rule_check(app_id: int):
     return rule_check.check(app_id)
 
 
-@app.get("/graph-rag")                # 그래프 RAG 사실 조회 (검증·디버그용 — LLM 미사용)
-def api_graph_rag(q: str):
-    """질의 → 엔티티 추출 → 그래프 다중홉 사실 라인. 챗봇 컨텍스트에 주입되는
-    것과 동일한 결과를 그대로 노출해, LLM 없이 그래프 품질을 검증할 수 있다."""
-    from core.graph_rag import graph_facts
-    return graph_facts(q)
-
-
 @app.get("/scan-docs")                # 스캔 의무기록 목록 (OCR 적재분)
 def api_scan_docs():
     import psycopg
