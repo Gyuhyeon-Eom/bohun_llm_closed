@@ -21,8 +21,43 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+# 코드 갱신에 따라오는 스키마 변경 (멱등 — 이미 적용된 환경에선 no-op).
+# git pull 후 이 스크립트만 돌리면 '안건현황을 불러오지 못했습니다'(새 컬럼 부재) 류가 해결된다.
+DDL = """
+ALTER TABLE application ADD COLUMN IF NOT EXISTS agenda_no TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS civil_receipt_date TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS rrn_masked TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS org TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS target_name TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS relation TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS juris_office TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS fast_track TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS six_month TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS team_lead TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS dept_head TEXT;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;
+CREATE TABLE IF NOT EXISTS sim_reason (
+  sr_id      BIGSERIAL PRIMARY KEY,
+  app_id     BIGINT NOT NULL,
+  dis_id     BIGINT NOT NULL DEFAULT 0,
+  case_id    BIGINT NOT NULL,
+  reason     TEXT,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(app_id, dis_id, case_id)
+);
+"""
+
+
 def main():
     clear_board = "--clear-board" in sys.argv
+
+    print("⓪ 스키마 변경 적용 (신규 컬럼·테이블 — 멱등)")
+    import psycopg
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute(DDL)
+        conn.commit()
+    print("   완료 — application 실화면 컬럼 12개 + sim_reason")
 
     print("① 판단기준 룰 재적재 (정형화틀 최종본 v2)")
     import scripts.seed_judgment_rules as sjr
