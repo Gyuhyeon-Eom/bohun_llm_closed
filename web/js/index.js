@@ -9,7 +9,7 @@
      5. 워크스페이스                 renderWork, 요건심사 안건 목록(ws*)
      6. 상이등급심사                 renderTable, 진행 DAG, AI 판정예측(grade*)
      7. 요건심사 리포트(1~4장)       sec1~sec4, judge, finalize
-     8. 우측 패널·체크리스트 바      renderPanel, renderCkBar, 산출물 다운로드
+     8. 우측 패널                   renderPanel, 산출물 내보내기 팝업(openSendModal)
      9. AI 챗봇                      renderChat, sendChat
     10. T/F 피드백 진입              openFeedback (전용 페이지 /feedback.html)
 
@@ -25,7 +25,6 @@ const SNB_ITEMS = ['민원접수','심사등록','보상급여','제대군인','
 
 let cases = [], selId = null, doc = null;
 let tab = 'report', curSec = 0, panel = 'ai';
-let visitedSecs = new Set(), ckState = [], ckCollapsed = true;   // 체크리스트 바는 기본 접힘 — 클릭 시 펼침
 let editLog = [];                 // 수정이력 패널 (세션 단위)
 let similarCache = null;          // 유사사례 패널 캐시
 let aiPanelLog = [];              // AI 검토 패널 질의응답
@@ -222,8 +221,7 @@ async function enterCase(id){
   draftEditing = null; caseFiles = null;
   doc = d;
   tab='report'; curSec=0; panel='ai';
-  visitedSecs = new Set(); ckState = (doc.checklist||[]).map(()=>false);
-  editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; ckCollapsed = true; s3Modal = null;  // 진입 시에도 접힘 유지
+  editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; s3Modal = null;
   gv = {mode:'list', ga:null, tab:'info', itemPreds:{}, sheetVals:null, priorOpen:false, scanDocs:null};
   logEvent('AI 자동생성', '공통뼈대 1~4장 자료 패키지 조립 (병적·의무기록·법령·분과기준)');
   $('gnav-back').innerHTML = icon('IconChevronLeft', 18);
@@ -238,7 +236,7 @@ const TABS = [
   {id:'bosang', icon:'IconScale',    label:'보상심사'},
   {id:'chat',   icon:'IconCommand',  label:'AI 챗봇'},
 ];
-function setTab(t){ tab=t; if(t!=='report'){ const b=$('ckbar'); if(b) b.style.display='none'; } renderWork(); }
+function setTab(t){ tab=t; renderWork(); }
 
 /* 화면 상단 "e보훈심사AI지원시스템" 진입 — 특정 안건 없이 워크스페이스 내비 + 안건 목록만 표출 */
 let wsSelId = null;
@@ -252,9 +250,9 @@ function renderWork(){
   $('gnav-tabs').innerHTML = TABS.map(t=>
     `<button class="tab ${tab===t.id?'on':''}" onclick="setTab('${t.id}')">${icon(t.icon,15)} ${t.label}</button>`).join('');
   const wb = $('workbody');
-  if(tab==='chat'){ renderChat(wb); $('ckbar').style.display='none'; return; }
-  if(tab==='bosang'){ renderBosangStub(wb); $('ckbar').style.display='none'; return; }
-  if(tab==='report' && !doc){ renderWsCaseList(wb); $('ckbar').style.display='none'; return; }
+  if(tab==='chat'){ renderChat(wb); return; }
+  if(tab==='bosang'){ renderBosangStub(wb); return; }
+  if(tab==='report' && !doc){ renderWsCaseList(wb); return; }
   wb.innerHTML = `
     ${tab==='report' ? `<div class="stepmenu">
       <div id="cksum-slot">${ckSummary()}</div>
@@ -272,8 +270,8 @@ function renderWork(){
     ].map(([id,ic,l])=>`<button id="rail-${id}" class="${panel===id?'on':''}" title="${l}" onclick="setPanel('${id}')">${icon(ic,18)}</button>`).join('')}</div>
     <div id="rpanel" style="${panel?'':'display:none'}"></div>` : ''}`;
   if(tab==='report'){ showSec(curSec); }
-  else { $('ckbar').style.display='none'; renderTable(); }   // 상이등급·기타 탭: 체크리스트 즉시 숨김
-  if(doc && tab==='report'){ renderPanel(); renderCkBar(); } else { $('ckbar').style.display='none'; }
+  else { renderTable(); }
+  if(doc && tab==='report'){ renderPanel(); }
 }
 
 /* ── 보상심사 (화면설계 260722 — 단계 신설 예정, 자리 표시) ── */
@@ -869,19 +867,20 @@ function gradePriorBody(g){
 /* ── 요건심사(리포트형): 공통뼈대 1~4장 ── */
 function showSec(i){
   if(i === 1){ openJudgeModal(); return; }   // 종합판단은 팝업 (v0.6 단순화 — 페이지 이동 없음)
-  curSec = 0; visitedSecs.add(0);
+  curSec = 0;
   secDraft();
-  renderCkBar();
   $('paper').scrollTop = 0;
 }
 
 function ckSummary(){
-  const items = (doc && doc.checklist) || [];
-  const done = ckState.filter(Boolean).length, total = items.length || 1;
-  const pct = Math.round(done/total*100);
-  return `<div class="cksum ${pct===100?'done':''}">
-    <div class="cap">${esc(doc?doc.subcommittee_info.name:'')} 체크리스트</div>
-    <div class="n">${done} / ${items.length} 완료</div>
+  /* 란별 필수 체크(dchks) 진행률 — 하단 분과 체크리스트 바 제거(260725) 후 단일 게이트 */
+  let done = 0, total = 0;
+  if(caseDrafts) for(const sec of ['s1','s2','s3'])
+    for(const c of (caseDrafts[sec]?.checks||[])) if(c.required){ total++; if(c.checked) done++; }
+  const pct = total ? Math.round(done/total*100) : 0;
+  return `<div class="cksum ${total&&done===total?'done':''}">
+    <div class="cap">필수 체크리스트</div>
+    <div class="n">${done} / ${total} 완료</div>
     <div class="bar"><div style="width:${pct}%"></div></div></div>`;
 }
 const AI_ST = {완료:['IconCheckCircle','var(--green-600)',''], 미흡:['IconAlertCircle','var(--amber-600)','warn'], 부족:['IconAlertCircle','var(--red-500)','bad']};
@@ -1330,6 +1329,7 @@ async function toggleDraftCheck(sec, idx, checked){
   await fetch(`/case-draft/${doc.app_id}/${sec}/check`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({idx, checked})});
   await loadDrafts(); showSec(0);
+  const el = $('cksum-slot'); if(el) el.innerHTML = ckSummary();
 }
 
 /* ── 종합판단 재생성 (화면설계 260722): 1~3장 수정 반영해 4장 판단문 일괄 재생성 ── */
@@ -1356,13 +1356,11 @@ async function regenJudgeAll(){
 
 /* ── 통합 보내기 (화면설계 260722): 산출물 단일 진입점 — 흩어져 있던 다운로드 버튼 통합 ── */
 function openSendModal(){
-  const items = doc.checklist || [];
-  const checklistOk = !items.length || ckState.filter(Boolean).length === items.length;
   const judged = (doc.disabilities||[]).length
     ? doc.disabilities.every(d=>d.conclusion && d.conclusion.body_text) : false;
-  const genOk = checklistOk && judged;
+  const genOk = judged;
   const gate = draftGate || {ok:false, missing_checks:[], empty_sections:[]};
-  const genMsg = genOk ? '' : [checklistOk?null:'분과 체크리스트 미완료', judged?null:'4장 판단내용 미생성'].filter(Boolean).join(' · ');
+  const genMsg = genOk ? '' : '4장 판단내용 미생성';
   const asmMsg = gate.ok ? '' : [...gate.empty_sections.map(x=>x+' 미작성'), ...gate.missing_checks.map(x=>'필수: '+x)].slice(0,2).join(' · ') + ((gate.missing_checks.length+gate.empty_sections.length)>2?' 외':'');
   const row = (title, sub, btns, okFlag, why) => `
     <div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px">
@@ -1445,7 +1443,6 @@ function judgeBodyHtml(){
 
 /* ── 종합판단 팝업 (v0.6 단순화): 한 페이지 초안 + 종합판단은 모달 ── */
 function openJudgeModal(){
-  visitedSecs.add(1);
   let m = $('judgeModal');
   if(!m){
     document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="judgeModal" onclick="if(event.target===this)closeJudgeModal()">
@@ -1458,7 +1455,6 @@ function openJudgeModal(){
   }
   $('judgeBody').innerHTML = judgeBodyHtml();
   loadRuleCheck(doc.app_id);
-  renderCkBar();
 }
 function closeJudgeModal(){ const m=$('judgeModal'); if(m) m.remove(); showSec(0); }
 
@@ -1646,49 +1642,7 @@ async function loadSimilarPanel(){
   if(panel==='similar') renderPanel();
 }
 
-/* ── 하단 분과 체크리스트 바 — 복사/다운로드 게이팅 (BNM-U00-0108) ── */
-function renderCkBar(){
-  const bar = $('ckbar');
-  const items = doc.checklist || [];
-  if(tab!=='report'){ bar.style.display='none'; return; }
-  bar.style.display = '';
-  const done = ckState.filter(Boolean).length;
-  const unread = [0,1].filter(i=>!visitedSecs.has(i));   // 표시용 (게이트 아님)
-  // 다운로드 규칙: ① 분과 체크리스트 전부 체크 + ② 모든 상이처의 판단내용(4장) 생성 완료
-  const checklistOk = !items.length || done === items.length;
-  const judged = (doc.disabilities||[]).length
-    ? doc.disabilities.every(d=>d.conclusion && d.conclusion.body_text)
-    : false;
-  const all = checklistOk && judged;
-  const gateMsg = all ? '' : [checklistOk?null:`체크리스트 ${done}/${items.length}`,
-                              judged?null:'판단내용 미생성'].filter(Boolean).join(' · ');
-  // 산출물 버튼 통합 (화면설계 260722): 개별 복사/TXT/PDF/ZIP → '통합 보내기' 팝업 단일 진입점
-  const dlBtns = `<button class="btn sm" onclick="openSendModal()">${icon('IconSend',13)} e통합보훈시스템 내보내기</button>`;
-  bar.classList.toggle('collapsed', ckCollapsed);
-  if(ckCollapsed){
-    bar.innerHTML = `
-      <span class="cnt-toggle" onclick="ckCollapsed=false;renderCkBar()" title="펼치기">
-        <span class="cnt ${all?'ok':''}">${esc(doc.subcommittee_info.name)} 체크리스트 · ${done}/${items.length} 완료</span>
-        ${icon('IconChevronUp',16,'color:var(--slate-400)')}</span>
-      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
-        ${all?'':`<span class="mutetxt" style="white-space:nowrap">${gateMsg} — 완료 후 다운로드 가능</span>`}${dlBtns}
-      </div>`;
-    bar.onclick = (e)=>{ if(e.target===bar){ ckCollapsed=false; renderCkBar(); } };
-    return;
-  }
-  bar.onclick = null;
-  bar.innerHTML = `
-    <span class="cnt-toggle" onclick="ckCollapsed=true;renderCkBar()">
-      <span class="cnt ${all?'ok':''}">${esc(doc.subcommittee_info.name)} 체크리스트 · ${done}/${items.length} 완료${unread.length?` · 미열람 ${unread.length}장`:''}</span>
-      ${icon('IconChevronDown',16,'color:var(--slate-400)')}</span>
-    <div class="items">${items.map((it,i)=>`
-      <span class="ckit ${ckState[i]?'on':''}" title="${esc((it.subs||[]).join(' / '))}" onclick="toggleCk(${i})">
-        <span class="ckbox">${ckState[i]?icon('IconCheck',11):''}</span>${esc(it.item)}</span>`).join('')}</div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      ${all?'':`<span class="mutetxt" style="white-space:nowrap">${gateMsg} — 완료 후 다운로드 가능</span>`}${dlBtns}
-    </div>`;
-}
-function toggleCk(i){ ckState[i] = !ckState[i]; renderCkBar(); const el=$('cksum-slot'); if(el) el.innerHTML=ckSummary(); }
+/* ── 하단 분과 체크리스트 바 제거(260725) — 란별 필수 체크(dchks)가 게이트 역할, 산출은 'e통합보훈시스템 내보내기' 팝업 ── */
 
 function fullText(){
   const s = doc, sv = s.service || {};
