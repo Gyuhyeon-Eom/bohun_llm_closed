@@ -1267,7 +1267,7 @@ function secDraft(){
     ${lan('s1')}${lan('s2')}${lan('s3')}
     <div class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px">
       <div style="flex:1;font-size:12.5px" id="gateMsg">${gateMsg}</div>
-      <button class="btn primary sm" onclick="openSendModal()">${icon('IconSend',13)} e통합보훈시스템 내보내기</button>
+      <button class="btn primary sm" onclick="openJudgeModal()">4. 종합판단 →</button>
     </div>` + s3ModalHtml();
   loadMissingDocs();
 }
@@ -1507,10 +1507,15 @@ function openJudgeModal(){
         <div class="mh"><span>4. 종합판단 <span class="mut" style="font-size:12px;font-weight:400">— 이원 판단 선택 → 판단내용 생성 → 담당자 확정</span></span>
           <button class="backlink" style="margin:0" onclick="closeJudgeModal()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
         <div id="judgeBody"></div>
+        <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);padding-top:12px;margin-top:14px">
+          <div style="flex:1;font-size:12.5px" id="judgeGateMsg"></div>
+          <button class="btn primary sm" onclick="openSendModal()">${icon('IconSend',13)} e통합보훈시스템 내보내기</button>
+        </div>
       </div></div>`);
     m = $('judgeModal');
   }
   $('judgeBody').innerHTML = judgeBodyHtml();
+  const jg = $('judgeGateMsg'); if(jg) jg.innerHTML = gateMsgHtml();
   loadRuleCheck(doc.app_id);
 }
 function closeJudgeModal(){ const m=$('judgeModal'); if(m) m.remove(); showSec(0); }
