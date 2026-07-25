@@ -209,7 +209,8 @@ def api_cases():
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("""SELECT a.app_id, a.recv_no, a.applicant, a.duty_type, a.is_death,
                               a.review_content, a.subcommittee, a.round, a.status, a.apply_kind, a.track,
-                              a.is_real,
+                              a.is_real, a.agenda_no, a.civil_receipt_date, a.rrn_masked, a.org,
+                              a.assignee, a.team_lead, a.dept_head, a.assigned_date,
                               array_agg(d.name || COALESCE('('||d.body_side||')','')) AS dis_names,
                               array_agg(d.kcd_code) AS kcd_codes,
                               (SELECT count(*) FROM case_draft cd

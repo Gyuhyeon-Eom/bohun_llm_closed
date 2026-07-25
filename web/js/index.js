@@ -167,19 +167,19 @@ function renderCaseTable(){
       <td style="width:26px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" ${batchSel.has(c.app_id)?'checked':''} onchange="toggleBatch(${c.app_id}, this.checked)" title="일괄 다운로드 선택"></td>
       <td style="width:34px">${(page-1)*10 + i + 1}</td>
       <td class="mono">${esc(c.recv_no)}</td>
-      <td class="mut">-</td>
-      <td class="mono">${esc(c.recv_no)}</td>
+      <td class="mono">${dash(c.civil_receipt_date)}</td>
+      <td class="mono">${esc(c.agenda_no||c.recv_no)}</td>
       <td class="nm">${esc(c.applicant)}${c.is_real?' <span class="realtag">실데이터</span>':''}</td>
-      <td class="mut">-</td>
+      <td class="mono" style="font-size:12px">${dash(c.rrn_masked)}</td>
       <td>요건심사</td>
       <td>${esc(c.review_content)}</td>
       <td>${esc(c.duty_type)}${c.is_death?' <span class="note">사망</span>':''}</td>
       <td>제${c.subcommittee}분과</td>
-      <td class="mut">-</td>
-      <td class="mut">-</td>
-      <td class="mut">-</td>
+      <td>${dash(c.assignee)}</td>
+      <td>${dash(c.team_lead)}</td>
+      <td>${dash(c.dept_head)}</td>
       <td>${c.is_death?'사망':'-'}</td>
-      <td class="mut">-</td>
+      <td class="mono">${dash(c.assigned_date)}</td>
     </tr>`).join('');
   w.innerHTML = `<div class="tblcard"><table class="gx"><thead><tr>
     <th style="width:26px"><input type="checkbox" onchange="toggleBatchAll(this.checked)" title="전체 선택"></th><th style="width:34px">No</th><th>접수번호</th><th>민원접수일자</th><th>안건번호</th><th>성명</th><th>주민등록번호</th>
@@ -354,20 +354,20 @@ function wsRenderCaseTable(){
       <td style="width:26px;text-align:center" onclick="event.stopPropagation();wsSelectCase(${c.app_id})"><input type="checkbox" ${wsSelId===c.app_id?'checked':''} readonly></td>
       <td style="width:34px">${(page-1)*10 + i + 1}</td>
       <td class="mono">${esc(c.recv_no)}</td>
-      <td class="mut">-</td>
-      <td class="mono">${esc(c.recv_no)}</td>
+      <td class="mono">${dash(c.civil_receipt_date)}</td>
+      <td class="mono">${esc(c.agenda_no||c.recv_no)}</td>
       <td class="nm">${esc(c.applicant)}${c.is_real?' <span class="realtag">실데이터</span>':''}</td>
-      <td class="mut">-</td>
+      <td class="mono" style="font-size:12px">${dash(c.rrn_masked)}</td>
       <td>요건심사</td>
       <td>${esc(c.review_content)}</td>
       <td>${esc(c.duty_type)}${c.is_death?' <span class="note">사망</span>':''}</td>
       <td>제${c.subcommittee}분과</td>
       <td><span class="stepchip" style="${c.step==='확정'?'background:#dcfce7;color:#15803d':c.step==='판단'?'background:#eff6ff;color:#1d4ed8':''}">${esc(c.step||'접수')}</span></td>
-      <td class="mut">-</td>
-      <td class="mut">-</td>
-      <td class="mut">-</td>
+      <td>${dash(c.assignee)}</td>
+      <td>${dash(c.team_lead)}</td>
+      <td>${dash(c.dept_head)}</td>
       <td>${c.is_death?'사망':'-'}</td>
-      <td class="mut">-</td>
+      <td class="mono">${dash(c.assigned_date)}</td>
     </tr>`).join('');
   w.innerHTML = `<div class="tblcard"><table class="gx"><thead><tr>
     <th style="width:26px"><input type="checkbox" onchange="toggleBatchAll(this.checked)" title="전체 선택"></th><th style="width:34px">No</th><th>접수번호</th><th>민원접수일자</th><th>안건번호</th><th>성명</th><th>주민등록번호</th>
@@ -1257,7 +1257,15 @@ function secDraft(){
       <dt>담당분과</dt><dd>${esc(doc.subcommittee_info.name)} <span class="mut">(${esc(doc.subcommittee_info.specialty||'')})</span></dd>
       <dt>담당 / 배정일</dt><dd>${esc(doc.assignee||'미배정')} / <span class="mono">${esc(doc.assigned_date||'—')}</span></dd>
       <dt>상태</dt><dd><span class="stepchip">${esc(doc.status||'접수')}</span></dd>
-      <dt></dt><dd class="mut" style="font-size:11px">※ 실사례 연계 시 e통합보훈시스템 안건 상세의 전체 필드가 이 카드에 매핑됩니다</dd></dl></div>
+      <dt>안건번호</dt><dd class="mono">${dash(doc.agenda_no)}</dd>
+      <dt>민원접수일자</dt><dd class="mono">${dash(doc.civil_receipt_date)}</dd>
+      <dt>주민등록번호</dt><dd class="mono">${dash(doc.rrn_masked)}</dd>
+      <dt>소속 / 관할청</dt><dd>${dash(doc.org)} / ${dash(doc.juris_office)}</dd>
+      <dt>대상자 (관계)</dt><dd>${dash(doc.target_name)} ${doc.relation?`<span class="stepchip">${esc(doc.relation)}</span>`:''}</dd>
+      <dt>패스트트랙 / 6개월전신청</dt><dd>${dash(doc.fast_track)} / ${dash(doc.six_month)}</dd>
+      <dt>결재라인</dt><dd>${dash(doc.assignee)} → 팀장 ${dash(doc.team_lead)} → 과장 ${dash(doc.dept_head)}</dd>
+      <dt>주심위원</dt><dd>${dash(doc.chief_member)}</dd></dl>
+      <div class="mut" style="font-size:11px;margin-top:8px">※ 통합보훈시스템 안건현황·심의안건 종합관리 실화면(260724 캡처) 필드 기준 — 값이 '—'인 항목은 연계 시 자동 매핑</div></div>
     <div id="missingBox"></div>
     ${lan('s1')}${lan('s2')}${lan('s3')}
     <div class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px">

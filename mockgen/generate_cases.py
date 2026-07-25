@@ -1075,15 +1075,43 @@ def main():
             a = c["app"]
             a.setdefault("apply_kind",
                          ["신규", "신규", "재신청", "이의신청", "재심의", "신규"][idx % 6])
+            # 통합보훈시스템 실화면 필드 (260724 캡처 대조 — 안건번호·소속·관할청·결재라인 등)
+            _dt = a["duty_type"]
+            _org = {"병사": ["육군", "해군", "공군"][idx % 3], "부사관": ["육군", "해병대"][idx % 2],
+                    "장교": "육군", "경찰": "경찰", "공무원": "공무원", "군무원": "군무원",
+                    "소방공무원": "소방공무원"}.get(_dt, "기타")
+            _death = a.get("is_death", False)
+            _rel = "본인" if not _death else ["배우자", "자녀", "사후양자"][idx % 3]
+            _birth = a.get("birth_year") or 1990
+            _sysfields = {
+                "agenda_no": f"BB2026060{600 + idx:04d}"[:13],
+                "civil_receipt_date": f"2026-0{3 + idx % 5}-{1 + idx % 27:02d}",
+                "rrn_masked": f"{_birth % 100:02d}{1 + idx % 12:02d}{1 + idx % 28:02d}-{1 + idx % 2}******",
+                "org": _org,
+                "target_name": a["applicant"].replace("故 ", "").split("(")[0],
+                "relation": _rel,
+                "juris_office": ["서울지방보훈청", "부산지방보훈청", "경기남부보훈지청", "대전지방보훈청",
+                                 "강원동부보훈지청", "인천보훈지청", "경기북부보훈지청"][idx % 7],
+                "fast_track": "Y" if idx % 9 == 0 else "N",
+                "six_month": "Y" if idx % 7 == 0 else "N",
+                "team_lead": ["박현미", "정향은", "김보영", "오윤미"][idx % 4],
+                "dept_head": ["김민화", "김대훈", "남창수"][idx % 3],
+                "chief_member": ["위원 김O헌", "위원 이O정", "위원 최O수"][idx % 3],
+            }
             cur.execute(
                 """INSERT INTO application(recv_no, applicant, birth_year, duty_type, is_death,
-                   review_content, subcommittee, status, apply_story, aftermath, apply_kind)
+                   review_content, subcommittee, status, apply_story, aftermath, apply_kind,
+                   agenda_no, civil_receipt_date, rrn_masked, org, target_name, relation,
+                   juris_office, fast_track, six_month, team_lead, dept_head, chief_member)
                    VALUES (%(recv_no)s,%(applicant)s,%(birth_year)s,%(duty_type)s,%(is_death)s,
                    %(review_content)s,%(subcommittee)s,'접수',%(apply_story)s,%(aftermath)s,
-                   %(apply_kind)s)
+                   %(apply_kind)s,
+                   %(agenda_no)s,%(civil_receipt_date)s,%(rrn_masked)s,%(org)s,%(target_name)s,
+                   %(relation)s,%(juris_office)s,%(fast_track)s,%(six_month)s,%(team_lead)s,
+                   %(dept_head)s,%(chief_member)s)
                    RETURNING app_id""",
-                {**a, "is_death": a.get("is_death", False),
-                 "apply_kind": a.get("apply_kind", "신규")})
+                {**a, "is_death": _death,
+                 "apply_kind": a.get("apply_kind", "신규"), **_sysfields})
             app_id = cur.fetchone()[0]
             # 0721 회의 ①: 재신청·이의신청·재심의 사건은 신청경위 하위 이력(이력1, 이력2…) 생성
             if a["apply_kind"] != "신규":

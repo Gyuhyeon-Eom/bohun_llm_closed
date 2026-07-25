@@ -340,3 +340,17 @@ CREATE TABLE IF NOT EXISTS sim_reason (
   created_at timestamptz DEFAULT now(),
   UNIQUE(app_id, dis_id, case_id)
 );
+
+-- 통합보훈시스템 실화면 필드 (260724 캡처 대조 — 안건현황·심의안건 종합관리·의결서관리)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS agenda_no TEXT;            -- 안건번호 (BB20260600588 형식)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS civil_receipt_date TEXT;   -- 민원접수일자
+ALTER TABLE application ADD COLUMN IF NOT EXISTS rrn_masked TEXT;           -- 주민등록번호 (041008-3****** 마스킹)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS org TEXT;                  -- 소속 (육군·공군·해군·공무원·소방공무원·기타)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS target_name TEXT;          -- 대상자 (사망사건 등 신청인≠대상자)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS relation TEXT;             -- 신청인-대상자 관계 (본인·배우자·자녀·사후양자)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS juris_office TEXT;         -- 관할청 (OO지방보훈청)
+ALTER TABLE application ADD COLUMN IF NOT EXISTS fast_track TEXT;           -- 패스트트랙 Y/N
+ALTER TABLE application ADD COLUMN IF NOT EXISTS six_month TEXT;            -- 6개월전신청 Y/N
+ALTER TABLE application ADD COLUMN IF NOT EXISTS team_lead TEXT;            -- 팀장
+ALTER TABLE application ADD COLUMN IF NOT EXISTS dept_head TEXT;            -- 과장
+ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;         -- 주심위원
