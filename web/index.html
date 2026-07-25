@@ -46,7 +46,6 @@
         <div class="gfbtns"><button class="primary" onclick="casePage=1;renderCaseTable()">검색</button><button onclick="$('casesearch').value='';casePage=1;renderCaseTable()">초기화</button></div>
       </div>
       <div class="gactionbar" style="width: 100%; justify-content: end;">
-        <button onclick="openOcr()">문서접수(OCR)</button>
         <button class="primary" id="aiBtn" disabled onclick="enterCase(selId)">AI 심사</button>
         <button disabled>회송</button>
         <button disabled>요양/의료급여복지증정</button>
@@ -88,7 +87,6 @@
     <span class="brand">e보훈심사AI지원시스템</span>
     <div class="tabs" id="gnav-tabs"></div>
     <button class="btn outline sm" style="margin-left:auto" onclick="goStatus()" title="e통합보훈시스템(안건현황)으로 이동">e통합보훈시스템</button>
-    <button class="btn outline sm" onclick="openOcr()" id="ocr-btn-work"></button>
     <button class="btn outline sm" onclick="openFeedback()" id="fb-btn-work"></button>
     <span class="case" id="gnav-case" style="margin-left:0"></span>
   </div>

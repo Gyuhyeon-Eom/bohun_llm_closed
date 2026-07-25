@@ -1911,7 +1911,6 @@ function openFeedback(){ window.open('/feedback.html', '_blank'); }
 initFbButtons();
 
 /* ── 문서접수(OCR) — 전용 페이지(/ocr.html): 스캔 txt 업로드·검수·정규화·안건 변환 ── */
-function openOcr(){ window.open('/ocr.html', '_blank'); }
-const _ocrBtn = $('ocr-btn-work'); if(_ocrBtn) _ocrBtn.innerHTML = `${icon('IconFileText',14)} 문서접수(OCR)`;
+/* 문서접수(OCR) 버튼 제거(260725 — 테스트용이었음). OCR 테스트 페이지 자체는 /ocr.html 직접 접속으로 유지 */
 
 loadCases();
