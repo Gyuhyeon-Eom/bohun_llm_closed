@@ -263,7 +263,7 @@ function renderWork(){
       <button class="sub" onclick="gotoLan('s1')">신청사항</button>
       <button class="sub" onclick="gotoLan('s2')">관련자료</button>
       <button class="sub" onclick="gotoLan('s3')">관계 법령·판단</button>
-      <button id="step1" class="${curSec===1?'on':''}" onclick="showSec(1)">종합판단</button>
+      <button id="step1" onclick="openJudgeModal()">종합판단 (팝업)</button>
     </div>` : ''}
     <div id="paper"></div>
     ${doc && tab==='report' ? `<div id="rail">${[
@@ -868,9 +868,9 @@ function gradePriorBody(g){
 
 /* ── 요건심사(리포트형): 공통뼈대 1~4장 ── */
 function showSec(i){
-  curSec = i; visitedSecs.add(i);
-  SECTIONS.forEach((_,n)=>{ const b=$('step'+n); if(b) b.classList.toggle('on', n===i); });
-  [secDraft,sec4][i]();
+  if(i === 1){ openJudgeModal(); return; }   // 종합판단은 팝업 (v0.6 단순화 — 페이지 이동 없음)
+  curSec = 0; visitedSecs.add(0);
+  secDraft();
   renderCkBar();
   $('paper').scrollTop = 0;
 }
@@ -977,13 +977,15 @@ function rawS3(){
     `<h4>나. 본 건 판단의 전제 — 유사사례 <span class="mut">(선별 결과가 AI 사전판단·판단문 생성에 반영)</span></h4>` +
     s.disabilities.map(d=>`
       <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin:8px 0 4px">${esc(d.name)}
-        <button class="btn outline sm" onclick="openS3Modal(${d.dis_id})">＋ 사례 추가</button></div>
+        <button class="btn outline sm" onclick="openS3Modal(${d.dis_id})">＋ 사례 추가</button>
+        ${d.similar.some(x=>!x.reason)?`<button class="btn outline sm" id="simReasonBtn" onclick="genSimReasons()">${icon('IconWand2',12)} AI 왜 유사한지</button>`:''}</div>
       ${d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:10px;align-items:baseline;padding:8px 14px">
         <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
         ${x.pick==='pin'?'<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★</span>':''}
         <span style="flex:1">${x.summary?esc(String(x.summary)).slice(0,110):`과거사례 ${esc(String(x.case_id))}`}
           <span class="mono" style="font-size:11px;color:var(--slate-400)"> ${(x.matched_codes||x.kcd_codes||[]).map(esc).join(', ')}</span>
-          ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}</span>
+          ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}
+          ${x.reason?`<div style="font-size:11.5px;color:#1d4ed8;margin-top:2px">${icon('IconWand2',10)} ${esc(x.reason)}</div>`:''}</span>
         <button class="backlink rowact" style="margin:0" onclick="pickSimilar(${d.dis_id},${x.case_id},'${x.pick==='pin'?'clear':'pin'}')">${x.pick==='pin'?'해제':'★고정'}</button>
         <button class="backlink rowact" style="margin:0 0 0 6px;color:#e11d48" onclick="pickSimilar(${d.dis_id},${x.case_id},'exclude')">제외</button></div>`).join('')
         :'<div class="mutetxt" style="margin:4px 0">유사사례 없음 — [사례 추가]로 직접 검색해 넣을 수 있습니다</div>'}`).join('') +
@@ -1118,6 +1120,20 @@ function s3ModalHtml(){
     </div></div>`;
 }
 
+/* ── 유사사례 'AI 왜 유사한지' 한줄 요약 (260724) ── */
+async function genSimReasons(){
+  const b = $('simReasonBtn'); if(b){ b.disabled = true; b.innerHTML = '<span class="loading">요약 중</span>'; }
+  try{
+    const r = await (await fetch(`/cases/${doc.app_id}/similar-reasons`, {method:'POST'})).json();
+    if(r.error){ alert(r.error); }
+    else{
+      logEvent('AI 자동생성', `유사사례 사유 요약 ${r.made}건 (캐시 ${r.cached}건)`);
+      doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+    }
+  }catch(e){ alert('요약 실패 — API 서버 상태를 확인하세요'); }
+  showSec(curSec);
+}
+
 /* ── 유사사례 선별 (260721 회의 ③): 제외/고정/검색추가 → 재조회 반영 ── */
 async function pickSimilar(disId, caseId, kind){
   let note = null;
@@ -1148,6 +1164,16 @@ async function searchSimilar(disId){
       <span style="flex:1">${esc(c.summary).slice(0,120)} <span class="mono" style="font-size:11px;color:var(--slate-400)">${(c.kcd_codes||[]).map(esc).join(', ')}</span></span>
       <button class="btn outline sm" onclick="pickSimilar(${disId},${c.case_id},'pin')">★ 추가</button></div>`).join('')
     : '<div class="mutetxt">검색 결과 없음</div>';
+}
+
+async function genFileNotes(){
+  const b = $('aiNotesBtn'); if(b){ b.disabled = true; b.innerHTML = '<span class="loading">요약 생성 중</span>'; }
+  try{
+    const r = await (await fetch(`/cases/${doc.app_id}/files/ai-notes`, {method:'POST'})).json();
+    if(r.error){ alert(r.error); }
+    else{ caseFiles = r.files; logEvent('AI 자동생성', `자료 한줄 요약 ${r.updated}건 (원문에 있는 정보만)`); }
+  }catch(e){ alert('요약 실패 — API 서버 상태를 확인하세요'); }
+  $('refModal')?.remove(); openRefModal();
 }
 
 /* ── 심의서 통합 작성 페이지 (1~3장): 란별 LLM 초안 → 텍스트박스 수정 → 체크 ── */
@@ -1220,11 +1246,18 @@ function secDraft(){
       <button class="btn outline sm" id="regenAllBtn" onclick="regenJudgeAll()">${icon('IconWand2',13)} 종합판단 업데이트</button>
       <button class="btn outline sm" onclick="setPanel('files')">${icon('IconInbox',13)} 사건 자료함${caseFiles?` (최종 ${caseFiles.filter(f=>f.is_final).length}/${caseFiles.length})`:''}</button>
     </div>
-    <div class="card idcard"><dl class="kv" style="grid-template-columns:110px 1fr">
-      <dt>신청인</dt><dd>${esc(doc.applicant)}${doc.is_real?' <span class="realtag">실데이터</span>':''} (${doc.birth_year?doc.birth_year+'년생, ':''}${esc(doc.duty_type)})
-        <span class="stepchip" style="${doc.apply_kind!=='신규'?'background:#fef3c7;color:#b45309':''}">${esc(doc.apply_kind||'신규')}</span></dd>
+    <div class="card idcard"><dl class="kv" style="grid-template-columns:100px 1fr 100px 1fr">
+      <dt>신청인</dt><dd>${esc(doc.applicant)}${doc.is_real?' <span class="realtag">실데이터</span>':''} (${doc.birth_year?doc.birth_year+'년생':'생년 —'})</dd>
+      <dt>신분</dt><dd>${esc(doc.duty_type)}${doc.is_death?' <span class="note">(사망 사건)</span>':''}</dd>
       <dt>접수번호 / 차수</dt><dd class="mono">${esc(doc.recv_no)} / ${doc.round}차</dd>
-      <dt>심의내용</dt><dd>${esc(doc.review_content)}${doc.is_death?' <span class="note">(사망 사건)</span>':''}</dd></dl></div>
+      <dt>신청구분</dt><dd><span class="stepchip" style="${doc.apply_kind!=='신규'?'background:#fef3c7;color:#b45309':''}">${esc(doc.apply_kind||'신규')}</span>
+        ${doc.apply_category&&doc.apply_category!==doc.apply_kind?` <span class="mut">(${esc(doc.apply_category)})</span>`:''}</dd>
+      <dt>심의내용</dt><dd>${esc(doc.review_content)}</dd>
+      <dt>심사구분</dt><dd>${esc(doc.track||'일반')}</dd>
+      <dt>담당분과</dt><dd>${esc(doc.subcommittee_info.name)} <span class="mut">(${esc(doc.subcommittee_info.specialty||'')})</span></dd>
+      <dt>담당 / 배정일</dt><dd>${esc(doc.assignee||'미배정')} / <span class="mono">${esc(doc.assigned_date||'—')}</span></dd>
+      <dt>상태</dt><dd><span class="stepchip">${esc(doc.status||'접수')}</span></dd>
+      <dt></dt><dd class="mut" style="font-size:11px">※ 실사례 연계 시 e통합보훈시스템 안건 상세의 전체 필드가 이 카드에 매핑됩니다</dd></dl></div>
     <div id="missingBox"></div>
     ${lan('s1')}${lan('s2')}${lan('s3')}
     <div class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px">
@@ -1254,13 +1287,16 @@ async function openRefModal(){
   if(!caseFiles){ try{ caseFiles = await (await fetch(`/cases/${doc.app_id}/files`)).json(); }catch(e){ caseFiles = []; } }
   const row = f=>`<div class="refrow" style="cursor:default;display:flex;gap:8px;align-items:baseline">
       <span style="color:${f.is_final?'#1d4ed8':'var(--border-strong)'}">${f.is_final?'★':'☆'}</span>
-      <span style="flex:1;font-size:12.5px"><span class="stepchip">${esc(f.kind)}</span> ${esc(f.title)}</span>
+      <span style="flex:1;font-size:12.5px"><span class="stepchip">${esc(f.kind)}</span> ${esc(f.title)}
+        ${f.note?`<div class="mut" style="font-size:11.5px;margin-top:2px">${esc(f.note)}</div>`:''}</span>
       ${f.file_path?`<a class="backlink" style="margin:0" href="/case-files/${f.cf_id}/download" target="_blank">${icon('IconDownload',12)} 다운로드</a>`:''}</div>`;
   const fin = caseFiles.filter(f=>f.is_final), rest = caseFiles.filter(f=>!f.is_final);
   document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="refModal" onclick="if(event.target===this)this.remove()">
     <div class="gmodal" style="width:640px">
       <div class="mh"><span>${icon('IconPaperclip',16)} 관련 자료 <span class="mut" style="font-size:12px;font-weight:400">— 사건 자료함 (★=최종 자료, 지정·업로드는 우측 자료함 패널)</span></span>
-        <button class="backlink" style="margin:0" onclick="$('refModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+        <span style="display:flex;gap:8px;align-items:center">
+          <button class="btn outline sm" id="aiNotesBtn" onclick="genFileNotes()">${icon('IconWand2',12)} AI 요약 (무엇을 확인하는 자료인지)</button>
+          <button class="backlink" style="margin:0" onclick="$('refModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></span></div>
       <div class="mcap">★ 최종 자료 (${fin.length})</div>${fin.map(row).join('')||'<div class="mutetxt">지정된 최종 자료 없음</div>'}
       <div class="mcap" style="margin-top:12px">기타 자료 (${rest.length})</div>${rest.map(row).join('')||'<div class="mutetxt">없음</div>'}
     </div></div>`);
@@ -1307,7 +1343,7 @@ async function regenJudgeAll(){
   }
   doc = await (await fetch('/decision-doc/'+doc.app_id)).json();
   logEvent('AI 자동생성', `종합판단 재생성 ${targets.length}건 — 1~3장 수정 반영`);
-  showSec(1);
+  showSec(0); openJudgeModal();
 }
 
 /* ── 통합 보내기 (화면설계 260722): 산출물 단일 진입점 — 흩어져 있던 다운로드 버튼 통합 ── */
@@ -1348,9 +1384,9 @@ function openSendModal(){
     </div></div>`);
 }
 
-function sec4(){
+function judgeBodyHtml(){
   const s = doc;
-  $('paper').innerHTML = `<div class="crumb">4. 종합판단 › 상이처별 이원 판단(국가유공자/보훈보상) 선택 → 판단내용 생성 → 담당자 확정</div>
+  return `<div class="crumb">4. 종합판단 › 상이처별 이원 판단(국가유공자/보훈보상) 선택 → 판단내용 생성 → 담당자 확정</div>
     <h4>가. 신청경위 요약</h4><div class="card soft">${esc(s.apply_story)}</div>
     ${evToggle('s1', s.disabilities.map(d=>'국가유공자 요건 사실 확인서 — ' + d.name))}
     <div id="ruleCheckBox"></div>
@@ -1397,8 +1433,26 @@ function sec4(){
       return aiReview('부족','판단내용이 작성되지 않았습니다 — 이원 판단 선택 후 생성하십시오.');
     })() +
     `<p class="mutetxt" style="margin-top:14px">※ 판단시 고려: ①관계법령 ②내부인정기준 ③유사판례 ④의학정보 ⑤최근 유사 의결서 — 3장에 표시됨</p>`;
-  loadRuleCheck(s.app_id);
 }
+
+/* ── 종합판단 팝업 (v0.6 단순화): 한 페이지 초안 + 종합판단은 모달 ── */
+function openJudgeModal(){
+  visitedSecs.add(1);
+  let m = $('judgeModal');
+  if(!m){
+    document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="judgeModal" onclick="if(event.target===this)closeJudgeModal()">
+      <div class="gmodal" style="width:1020px;max-width:95vw;max-height:88vh;overflow:auto">
+        <div class="mh"><span>4. 종합판단 <span class="mut" style="font-size:12px;font-weight:400">— 이원 판단 선택 → 판단내용 생성 → 담당자 확정</span></span>
+          <button class="backlink" style="margin:0" onclick="closeJudgeModal()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+        <div id="judgeBody"></div>
+      </div></div>`);
+    m = $('judgeModal');
+  }
+  $('judgeBody').innerHTML = judgeBodyHtml();
+  loadRuleCheck(doc.app_id);
+  renderCkBar();
+}
+function closeJudgeModal(){ const m=$('judgeModal'); if(m) m.remove(); showSec(0); }
 
 /* 분과 판단기준 자동대조 (정형화틀 v2.4) — 결정적 서류대조·계산, LLM 미사용 */
 async function loadRuleCheck(appId){
@@ -1428,7 +1482,7 @@ async function judge(disId){
   doc = await (await fetch('/decision-doc/'+selId)).json();
   const d = doc.disabilities.find(x=>x.dis_id===disId);
   logEvent('AI 자동생성', `4. 종합판단 - ${d?d.name:disId} 판단내용 초안 생성 (${yeu.value}/${bo.value})`);
-  showSec(1);
+  openJudgeModal();
   document.getElementById('dis'+disId)?.scrollIntoView({behavior:'smooth', block:'center'});
 }
 async function finalize(disId){
@@ -1441,7 +1495,7 @@ async function finalize(disId){
   if(body != null && body.trim() !== before.trim())
     logEvent('담당자', `4. 종합판단 - ${d?d.name:disId} 판단문안 수정`);
   logEvent('담당자', `4. 종합판단 - ${d?d.name:disId} 담당자 확정`);
-  showSec(1);
+  openJudgeModal();
 }
 
 /* ── 우측 아이콘 레일 + 패널 (BNM-U00-0104~0107) ── */
@@ -1509,8 +1563,7 @@ function renderPanel(){
   if(panel==='similar'){ rp.innerHTML = panelShell('유사사례','IconScale', similarPanelBody()); loadSimilarPanel(); }
 }
 
-/* ── AI 질의 챗봇 패널 (v0.6 화면설계 ④): 유사사례·법령·판례 검색 + 안건 질의 ── */
-let panelQType = '유사사례';
+/* ── AI 질의 챗봇 패널: 안건 질의 단일 창 — 유사사례·법령·판례는 RAG가 자동 검색 ── */
 function aiPanelBody(){
   const nMed = doc.disabilities.reduce((a,d)=>a+d.medical.length, 0);
   const nLaw = doc.laws.length;
@@ -1518,8 +1571,6 @@ function aiPanelBody(){
   const nConflict = doc.disabilities.reduce((a,d)=>a+d.similar.filter(x=>x.decision==='비해당').length, 0);
   const line = (ok, txt) => `<div class="chk-line">${icon(ok?'IconCheck':'IconAlertCircle',14,
     `color:var(--${ok?'green-600':'red-500'});margin-top:3px`)}<span ${ok?'':'style="color:var(--red-500)"'}>${txt}</span></div>`;
-  const chips = ['유사사례','법령','판례'].map(t=>
-    `<button class="qchip ${panelQType===t?'on':''}" onclick="panelQType='${t}';renderPanel()">${t} 검색</button>`).join('');
   const log = aiPanelLog.map(m => m.role==='user'
     ? `<div class="pmsg user">${esc(m.text)}</div>`
     : `<div class="pmsg ai ${m.err?'err':''}">${m.err?icon('IconAlertTriangle',13,'color:var(--amber-600);margin-right:4px'):''}${m.err?esc(m.text):fmtAI(m.text)}${srcChips(m.sources)}</div>`).join('');
@@ -1527,11 +1578,10 @@ function aiPanelBody(){
     + line(true, `관계법령 ${nLaw}건 대조 완료`)
     + line(nSim>0, `유사사례 ${nSim}건 조회${nSim?'':' — 일치 사례 없음'}`)
     + (nConflict ? line(false, `과거 판정 중 비해당 ${nConflict}건 — 상충 여부 확인 필요`) : '')
-    + `<div class="mutetxt" style="margin:12px 0 6px">검색 유형을 선택해주세요.</div>
-       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chips}</div>
+    + `<div class="mutetxt" style="margin:12px 0 6px">유사사례·법령·판례를 한 창에서 — RAG가 자동으로 관련 자료를 찾아 답합니다.</div>
        <div id="ppmsgs">${log}</div>
        ${loadHtml('loadchip-panel')}
-       <div class="pinput"><input id="panelQ" placeholder="이 안건에 대해 질의하세요 (${panelQType})"
+       <div class="pinput"><input id="panelQ" placeholder="이 안건에 대해 질의하세요"
           onkeydown="if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229)sendPanelQuery()">
         <button class="backlink" style="margin:0" onclick="sendPanelQuery()" title="전송">${icon('IconSend',15)}</button></div>`
     + (llmStatus && !llmStatus.ok ? `<div class="mutetxt" style="margin-top:8px">${llmChip()}</div>` : '');
@@ -1539,16 +1589,15 @@ function aiPanelBody(){
 async function sendPanelQuery(){
   const inp = $('panelQ');
   const q = (inp && inp.value || '').trim(); if(!q) return;
-  const kind = panelQType;
-  aiPanelLog.push({role:'user', text:`[${kind} 검색] ${q}`});
+  aiPanelLog.push({role:'user', text:q});
   aiPanelLog.push({role:'ai', text:'검색 중입니다.', loading:true});
   renderPanel(); setTimeout(pollLoad, 300);
   const names = doc.disabilities.map(d=>d.name).join(', ');
-  const r = await askLLM({question:`[검색 유형: ${kind}] (안건: ${doc.recv_no} ${names}) ${q}`, history:[]});
+  const r = await askLLM({question:`(안건: ${doc.recv_no} ${names}) ${q}`, history:[]});
   aiPanelLog.pop();
   aiPanelLog.push(r.error ? {role:'ai', text:r.error, err:true, sources:r.sources}
                           : {role:'ai', text:r.answer, sources:r.sources});
-  logEvent('담당자', `AI 질의 챗봇 ${kind} 검색: ${q.slice(0,40)}`);
+  logEvent('담당자', `AI 질의 챗봇 질의: ${q.slice(0,40)}`);
   renderPanel();
 }
 
@@ -1576,7 +1625,8 @@ function similarPanelBody(){
   return similarCache.map(s=>`<div class="pcard" style="cursor:default">
     <div class="pt"><span class="res ${s.decision==='해당'?'yes':s.decision==='비해당'?'no':'hold'}">${esc(s.decision||'대기')}</span>
       <span class="mono" style="font-weight:400;color:var(--slate-400);font-size:11px;margin-left:6px">KCD ${(s.kcd_codes||[]).map(esc).join(',')} · 유사도 ${s.similarity}</span></div>
-    <div class="pm">${esc(String(s.summary||'')).slice(0,120)}</div></div>`).join('');
+    <div class="pm">${esc(String(s.summary||'')).slice(0,120)}</div>
+    ${s.reason?`<div style="font-size:11px;color:#1d4ed8;margin-top:3px">${esc(s.reason)}</div>`:''}</div>`).join('');
 }
 async function loadSimilarPanel(){
   if(similarCache !== null) return;

@@ -170,6 +170,15 @@ def test_mri_check_acute_vs_chronic():
     assert man == "manual"                             # 자료 없음
 
 
+# ── 신규 프롬프트 렌더링 (260724 — 자료·유사사례 LLM 요약) ──────────
+def test_new_prompts_render_without_placeholder_error():
+    """file_notes/similar_reason 템플릿의 JSON 예시 중괄호 이스케이프 회귀 방지."""
+    from core.llm_client import get_llm
+    llm = get_llm()  # 기본 mock — 렌더링 실패면 RuntimeError
+    assert llm.generate("file_notes", case_summary="요약", files="- [진단서] 외과 진단서")
+    assert llm.generate("similar_reason", case="본건", decision="해당", past="과거사례")
+
+
 # ── 소견→상이처 매핑 (services/scan_to_case.py) ─────────────────────
 def test_map_finding():
     from services.scan_to_case import _map_finding

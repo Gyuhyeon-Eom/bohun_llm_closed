@@ -106,3 +106,39 @@ def get_file(cf_id: int) -> dict | None:
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("SELECT * FROM case_file WHERE cf_id=%s", (cf_id,))
         return cur.fetchone()
+
+
+def ai_notes(app_id: int, llm) -> dict:
+    """자료별 한 줄 AI 요약 — '무엇을 확인하는 자료이고 왜 필요한지' (note 빈 행만 채움).
+    사실 생성 금지: 목록·사건 요약에 있는 정보만 사용, 위치(원문 행)는 명시된 경우만."""
+    from services.ocr_normalize import _parse_json
+    files = list_files(app_id)
+    targets = [f for f in files if not (f.get("note") or "").strip()]
+    if not targets:
+        return {"ok": True, "updated": 0, "files": files}
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT applicant, duty_type, apply_kind, review_content, apply_story"
+                    " FROM application WHERE app_id=%s", (app_id,))
+        app = cur.fetchone() or {}
+        cur.execute("SELECT name, body_side, kcd_code FROM disability WHERE app_id=%s", (app_id,))
+        dis = cur.fetchall()
+    dis_txt = ", ".join("{}({}·{})".format(d["name"], d["body_side"] or "-", d["kcd_code"]) for d in dis)
+    summary = (f"{app.get('applicant')}({app.get('duty_type')}) · {app.get('review_content')}"
+               f" · 신청구분 {app.get('apply_kind')}\n"
+               f"신청상이: {dis_txt}\n"
+               f"경위: {(app.get('apply_story') or '')[:200]}")
+    flist = "\n".join(f"- [{f['kind']}] {f['title']}" for f in targets)
+    text = llm.generate("file_notes", case_summary=summary, files=flist)
+    if text.startswith("[MOCK"):
+        return {"error": "생성 LLM 미연결(mock 모드) — FabriX/Ollama 연동 시 자동 요약됩니다"}
+    parsed = _parse_json(text) or {}
+    notes = parsed.get("notes") or {}
+    updated = 0
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        for f in targets:
+            n = (notes.get(f["title"]) or "").strip()
+            if n:
+                cur.execute("UPDATE case_file SET note=%s WHERE cf_id=%s", (f"[AI] {n[:120]}", f["cf_id"]))
+                updated += 1
+        conn.commit()
+    return {"ok": True, "updated": updated, "files": list_files(app_id)}

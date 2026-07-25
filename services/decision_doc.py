@@ -45,6 +45,24 @@ def load_case(app_id: int) -> dict | None:
         return app
 
 
+def _attach_sim_reasons(app_id, d):
+    """sim_reason 캐시의 'AI 왜 유사한지'를 similar 항목에 주입 (테이블 미생성 등은 무시)."""
+    try:
+        import psycopg as _pg
+        from psycopg.rows import dict_row as _dr
+        from config.settings import PG_DSN as _dsn
+        with _pg.connect(_dsn, row_factory=_dr) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT case_id, reason FROM sim_reason WHERE app_id=%s AND dis_id=%s",
+                            (app_id, d["dis_id"]))
+                m = {r["case_id"]: r["reason"] for r in cur.fetchall()}
+        for x in d.get("similar") or []:
+            if x.get("case_id") in m:
+                x["reason"] = m[x["case_id"]]
+    except Exception:
+        pass
+
+
 def build_doc(app_id: int, emb) -> dict | None:
     """공통뼈대 1~3장 + 4장 골격. 근거(법령·의학정보·유사사례)는 RAG로 수집."""
     app = load_case(app_id)
@@ -87,6 +105,7 @@ def build_doc(app_id: int, emb) -> dict | None:
         sims = cases_by_kcd([d["kcd_code"]], n=3) if d["kcd_code"] else []
         picks = _sp.get_picks("case", app_id=app_id, dis_id=d["dis_id"])
         d["similar"] = _sp.apply_picks(sims, picks, "case_id", _sp.fetch_cases) if picks else sims
+        _attach_sim_reasons(app_id, d)   # 'AI 왜 유사한지' 캐시 주입 (sim_reason — 없으면 무시)
         d["conclusion"] = app["conclusions"].get(d["dis_id"])
         # 4.나 AI 사전 판단: 사건 자료(OCR)·유사사례 기반 두 축 예측 (담당자 확인·수정 전 추천값)
         d["predicted"] = _predict_axes(app, d)

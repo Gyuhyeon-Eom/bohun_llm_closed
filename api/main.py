@@ -361,6 +361,18 @@ def api_case_file_add(app_id: int, req: CaseFileReq):
     return case_file.add(app_id, req.kind, req.title, req.dis_id, req.note)
 
 
+@app.post("/cases/{app_id}/files/ai-notes")   # 자료별 한 줄 AI 요약 (260724 — 왜 필요한 자료인지)
+def api_case_file_ai_notes(app_id: int):
+    from services import case_file
+    return case_file.ai_notes(app_id, _llm)
+
+
+@app.post("/cases/{app_id}/similar-reasons")  # 유사사례 'AI 왜 유사한지' 요약 생성·캐시
+def api_similar_reasons(app_id: int):
+    from services import sim_reason
+    return sim_reason.generate(app_id, _llm, _emb)
+
+
 @app.post("/cases/{app_id}/files/upload")     # 파일 업로드 추가
 async def api_case_file_upload(app_id: int, file: UploadFile, kind: str = "추가 자료"):
     from services import case_file

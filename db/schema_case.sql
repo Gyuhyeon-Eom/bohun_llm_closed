@@ -329,3 +329,14 @@ CREATE TABLE IF NOT EXISTS case_file (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_case_file_key
   ON case_file(app_id, COALESCE(dis_id,0), kind, title);
+
+-- 유사사례 'AI 왜 유사한지' 요약 캐시 (260724 — 자료·유사사례 LLM 요약)
+CREATE TABLE IF NOT EXISTS sim_reason (
+  sr_id      BIGSERIAL PRIMARY KEY,
+  app_id     BIGINT NOT NULL,
+  dis_id     BIGINT NOT NULL DEFAULT 0,
+  case_id    BIGINT NOT NULL,
+  reason     TEXT,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(app_id, dis_id, case_id)
+);
