@@ -1231,16 +1231,14 @@ function secDraft(){
       </details>
     </div>`;
   };
-  const gate = draftGate || {ok:false, missing_checks:[], empty_sections:[]};
-  const gateMsg = gate.ok
-    ? `<span class="res yes">조립 가능</span> 필수 체크 완료 — 심의의결서는 아래 확정 텍스트를 <b>LLM 없이</b> 그대로 결합합니다.`
-    : `<span class="res hold">대기</span> ${[...gate.empty_sections.map(x=>x+' 미작성'), ...gate.missing_checks.map(x=>'필수: '+x)].slice(0,3).map(esc).join(' · ')}${(gate.missing_checks.length+gate.empty_sections.length)>3?' 외':''}`;
+  const gateMsg = gateMsgHtml();
   $('paper').innerHTML = `
     <div class="dhead">
       <h2>AI 심의 의결서 초안</h2>
       <span class="mut mono" style="font-size:12.5px">${esc(doc.recv_no)} · 담당 ${esc(doc.subcommittee_info.name)}</span>
       <span style="flex:1"></span>
       <span class="mut" style="font-size:12px">${lastDraftSave?`${lastDraftSave} 마지막 저장`:''}</span>
+      <button class="btn primary sm" id="genAllBtn" onclick="genAllDrafts()">${icon('IconWand2',13)} AI 심의의결서 생성</button>
       <button class="btn outline sm" ${draftEditing?'':'disabled'} title="${draftEditing?'수정 중인 란 저장':'수정 중인 란이 없습니다 — 각 란의 ✎ 수정으로 열립니다'}" onclick="saveDraft(draftEditing)">${icon('IconCheck',13)} 저장</button>
       <button class="btn outline sm" id="regenAllBtn" onclick="regenJudgeAll()">${icon('IconWand2',13)} 종합판단 업데이트</button>
       <button class="btn outline sm" onclick="setPanel('files')">${icon('IconInbox',13)} 사건 자료함${caseFiles?` (최종 ${caseFiles.filter(f=>f.is_final).length}/${caseFiles.length})`:''}</button>
@@ -1268,7 +1266,7 @@ function secDraft(){
     <div id="missingBox"></div>
     ${lan('s1')}${lan('s2')}${lan('s3')}
     <div class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px">
-      <div style="flex:1;font-size:12.5px">${gateMsg}</div>
+      <div style="flex:1;font-size:12.5px" id="gateMsg">${gateMsg}</div>
       <button class="btn primary sm" onclick="openSendModal()">${icon('IconSend',13)} e통합보훈시스템 내보내기</button>
     </div>` + s3ModalHtml();
   loadMissingDocs();
@@ -1308,6 +1306,40 @@ async function openRefModal(){
       <div class="mcap" style="margin-top:12px">기타 자료 (${rest.length})</div>${rest.map(row).join('')||'<div class="mutetxt">없음</div>'}
     </div></div>`);
 }
+/* ── AI 심의의결서 일괄 생성 (260725): 1~3장 순차 생성 + 진행 로딩바, 완료 후 수정·재생성 ── */
+async function genAllDrafts(){
+  const secs = ['s1','s2','s3'];
+  const todo = caseDrafts ? secs.filter(x=>!caseDrafts[x].content) : secs;
+  const targets = todo.length ? todo : secs;   // 전부 작성돼 있으면 전체 재생성
+  if(!todo.length && !confirm('세 란 모두 이미 작성되어 있습니다. 전체를 다시 생성할까요?\n(기존 내용은 수정이력에 남습니다)')) return;
+  const names = {s1:'1. 신청사항', s2:'2. 관련자료', s3:'3. 관계법령·판단의 전제'};
+  document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="genModal">
+    <div class="gmodal" style="width:520px;text-align:center">
+      <div style="font-size:15px;font-weight:800;margin-bottom:6px">${icon('IconWand2',16)} AI 심의의결서 초안 생성 중</div>
+      <div class="mut" id="genStep" style="font-size:12.5px;margin-bottom:14px">준비 중…</div>
+      <div style="height:10px;border-radius:999px;background:var(--slate-100);overflow:hidden">
+        <div id="genBar" style="height:100%;width:4%;background:var(--blue);border-radius:999px;transition:width .4s"></div></div>
+      <div class="mut" style="font-size:11.5px;margin-top:12px">사건 자료·분과 정형화틀 모듈을 주입해 란별로 작성합니다 — 생성이 끝나면 바로 수정·재생성할 수 있습니다.</div>
+    </div></div>`);
+  let failed = null;
+  for(let i = 0; i < targets.length; i++){
+    const sec = targets[i];
+    const st = $('genStep'); if(st) st.textContent = `${names[sec]} 작성 중… (${i+1}/${targets.length})`;
+    const bar = $('genBar'); if(bar) bar.style.width = `${Math.round((i + .15) / targets.length * 100)}%`;
+    try{
+      const r = await (await fetch(`/case-draft/${doc.app_id}/${sec}/generate`, {method:'POST'})).json();
+      if(r.error){ failed = `${names[sec]}: ${r.error}`; break; }
+    }catch(e){ failed = `${names[sec]}: 요청 실패 — API 서버 상태를 확인하세요`; break; }
+    if(bar) bar.style.width = `${Math.round((i + 1) / targets.length * 100)}%`;
+  }
+  logEvent('AI 자동생성', failed ? `심의의결서 일괄 생성 중단 — ${failed}` : `심의의결서 초안 일괄 생성 (${targets.length}개 란)`);
+  await loadDrafts();
+  $('genModal')?.remove();
+  if(failed) alert(failed);
+  lastDraftSave = nowStr().slice(11);
+  showSec(0);
+}
+
 async function genDraft(sec){
   const b = $('gen_'+sec); if(b){ b.disabled = true; b.innerHTML = '<span class="loading">생성 중</span>'; }
   const r = await (await fetch(`/case-draft/${doc.app_id}/${sec}/generate`, {method:'POST'})).json();
@@ -1326,10 +1358,35 @@ async function saveDraft(sec){
   await loadDrafts(); showSec(0);
 }
 async function toggleDraftCheck(sec, idx, checked){
-  await fetch(`/case-draft/${doc.app_id}/${sec}/check`, {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({idx, checked})});
-  await loadDrafts(); showSec(0);
+  /* 260725: 체크마다 화면 전체가 새로고침되던 문제 — 서버 반영 후 제자리 갱신만 */
+  const r = await (await fetch(`/case-draft/${doc.app_id}/${sec}/check`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({idx, checked})})).json();
+  if(r.checks && caseDrafts) caseDrafts[sec].checks = r.checks;
+  draftGate = clientGate();
+  const g = $('gateMsg'); if(g) g.innerHTML = gateMsgHtml();
   const el = $('cksum-slot'); if(el) el.innerHTML = ckSummary();
+}
+
+function clientGate(){
+  /* required_done()과 동일 규칙을 클라이언트에서 — 체크 토글 시 왕복 재조회 없이 게이트 갱신 */
+  if(!caseDrafts) return {ok:false, missing_checks:[], empty_sections:[], missing_judgment:[]};
+  const missing = [], empty = [];
+  for(const sec of ['s1','s2','s3']){
+    const d = caseDrafts[sec];
+    if(!d.content) empty.push(d.title);
+    for(const c of d.checks||[]) if(c.required && !c.checked) missing.push(`${d.title}: ${c.label}`);
+  }
+  const mj = (doc?.disabilities||[]).filter(d=>!(d.conclusion&&d.conclusion.body_text)).map(d=>d.name);
+  return {ok: !missing.length && !empty.length && !mj.length,
+          missing_checks: missing, empty_sections: empty, missing_judgment: mj};
+}
+function gateMsgHtml(){
+  const gate = draftGate || {ok:false, missing_checks:[], empty_sections:[], missing_judgment:[]};
+  if(gate.ok) return `<span class="res yes">조립 가능</span> 초안(1~3장)·종합판단(4장) 완료 — 심의의결서는 확정 텍스트를 <b>LLM 없이</b> 그대로 결합합니다.`;
+  const parts = [...gate.empty_sections.map(x=>x+' 미작성'),
+                 ...(gate.missing_judgment||[]).map(x=>`4장 종합판단 미완료(${x})`),
+                 ...gate.missing_checks.map(x=>'필수: '+x)];
+  return `<span class="res hold">대기</span> ${parts.slice(0,3).map(esc).join(' · ')}${parts.length>3?' 외':''}`;
 }
 
 /* ── 종합판단 재생성 (화면설계 260722): 1~3장 수정 반영해 4장 판단문 일괄 재생성 ── */
@@ -1373,7 +1430,7 @@ function openSendModal(){
       <div class="mh"><span>${icon('IconSend',16)} e통합보훈시스템 내보내기 <span class="mut" style="font-size:12px;font-weight:400">— 심의의결서 산출물 일괄 진입점</span></span>
         <button class="backlink" style="margin:0" onclick="$('sendModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
       ${row('조립 심의의결서 <span class="stepchip" style="background:#dcfce7;color:#15803d">권장 · LLM 미사용</span>',
-        '1~3장 확정 란 텍스트 + 4장 결론을 기계적으로 결합 (란별 필수 체크 완료 시)',
+        '초안(1~3장 확정 텍스트) + 종합판단(4장)을 기계적으로 결합 — 필수 체크와 4장 판단 완료 시',
         `<button class="btn outline sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=txt','_blank')">TXT</button>
          <button class="btn primary sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=pdf','_blank')">PDF</button>`,
         gate.ok, asmMsg)}
@@ -1486,6 +1543,7 @@ async function judge(disId){
   doc = await (await fetch('/decision-doc/'+selId)).json();
   const d = doc.disabilities.find(x=>x.dis_id===disId);
   logEvent('AI 자동생성', `4. 종합판단 - ${d?d.name:disId} 판단내용 초안 생성 (${yeu.value}/${bo.value})`);
+  draftGate = clientGate(); const _g = $('gateMsg'); if(_g) _g.innerHTML = gateMsgHtml();
   openJudgeModal();
   document.getElementById('dis'+disId)?.scrollIntoView({behavior:'smooth', block:'center'});
 }
@@ -1499,6 +1557,7 @@ async function finalize(disId){
   if(body != null && body.trim() !== before.trim())
     logEvent('담당자', `4. 종합판단 - ${d?d.name:disId} 판단문안 수정`);
   logEvent('담당자', `4. 종합판단 - ${d?d.name:disId} 담당자 확정`);
+  draftGate = clientGate(); const _g = $('gateMsg'); if(_g) _g.innerHTML = gateMsgHtml();
   openJudgeModal();
 }
 

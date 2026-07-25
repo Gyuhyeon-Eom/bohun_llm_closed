@@ -170,13 +170,24 @@ def set_check(app_id: int, section: str, idx: int, checked: bool) -> dict:
 
 
 def required_done(app_id: int) -> dict:
-    """의결서 조립 게이트 — 전 란 필수 체크 완료 여부."""
+    """의결서 조립 게이트 — 전 란 필수 체크 + 4장 종합판단 완료 여부.
+    (260725: 의결서 = 초안(1~3장) + 종합판단(4장)이므로 판단내용 미생성 상이처가 있으면 미충족)"""
     drafts = get_all(app_id)
     missing = [f"{SECTION_TITLE[s]}: {c['label']}"
                for s in SECTIONS for c in drafts[s]["checks"]
                if c.get("required") and not c.get("checked")]
     empty = [SECTION_TITLE[s] for s in SECTIONS if not drafts[s]["content"]]
-    return {"ok": not missing and not empty, "missing_checks": missing, "empty_sections": empty}
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("""SELECT d.name FROM disability d
+                       JOIN application a USING (app_id)
+                       LEFT JOIN conclusion c ON c.dis_id=d.dis_id AND c.app_id=d.app_id
+                         AND c.round=a.round
+                       WHERE d.app_id=%s AND (c.body_text IS NULL OR c.body_text='')
+                       ORDER BY d.dis_id""", (app_id,))
+        missing_judgment = [r["name"] for r in cur.fetchall()]
+    return {"ok": not missing and not empty and not missing_judgment,
+            "missing_checks": missing, "empty_sections": empty,
+            "missing_judgment": missing_judgment}
 
 
 def assemble(app_id: int) -> str:
