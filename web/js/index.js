@@ -981,7 +981,7 @@ function rawS3(){
       ${d.similar.length?d.similar.map(x=>`<div class="card" style="display:flex;gap:10px;align-items:baseline;padding:8px 14px">
         <span class="res ${x.decision==='해당'?'yes':'no'}">${esc(x.decision||'대기')}</span>
         ${x.pick==='pin'?'<span class="realtag" style="color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe">★</span>':''}
-        <span style="flex:1">${x.summary?esc(String(x.summary)).slice(0,110):`과거사례 ${esc(String(x.case_id))}`}
+        <span style="flex:1;cursor:pointer" title="클릭하면 사례 상세와 유사 사유를 봅니다" onclick="openSimDetail(${d.dis_id},${x.case_id})">${x.summary?esc(String(x.summary)).slice(0,110):`과거사례 ${esc(String(x.case_id))}`}
           <span class="mono" style="font-size:11px;color:var(--slate-400)"> ${(x.matched_codes||x.kcd_codes||[]).map(esc).join(', ')}</span>
           ${x.pick_note?`<span class="mut" style="font-size:11px"> · ${esc(x.pick_note)}</span>`:''}
           ${x.reason?`<div style="font-size:11.5px;color:#1d4ed8;margin-top:2px">${icon('IconWand2',10)} ${esc(x.reason)}</div>`:''}</span>
@@ -1117,6 +1117,45 @@ function s3ModalHtml(){
       <div id="simres${d.dis_id}"><div class="mutetxt">검색어를 입력하세요 — 과거사례 풀에서 찾아 ★추가할 수 있습니다.</div></div>
       <div style="margin-top:10px;text-align:right"><button class="backlink" style="margin:0;color:#e11d48" onclick="resetPicks(${d.dis_id})">이 상이처의 선별 전체 초기화</button></div>
     </div></div>`;
+}
+
+/* ── 유사사례 상세 팝업 (260725): 사례 자료 + 왜 유사한지 요약 ── */
+async function openSimDetail(disId, caseId){
+  let c;
+  try{ c = await (await fetch(`/case-pool/${caseId}`)).json(); }catch(e){ c = {error:'조회 실패'}; }
+  if(c.error){ alert(c.error); return; }
+  let reason = null;
+  for(const d of doc.disabilities||[])
+    for(const x of d.similar||[])
+      if(x.case_id === caseId && x.reason) reason = x.reason;
+  document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="simDetail" onclick="if(event.target===this)this.remove()">
+    <div class="gmodal" style="width:680px">
+      <div class="mh"><span>유사사례 상세 <span class="mono mut" style="font-size:12px;font-weight:400">사례 ${caseId}</span></span>
+        <button class="backlink" style="margin:0" onclick="$('simDetail').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+      <div style="display:flex;gap:18px;margin-bottom:10px;flex-wrap:wrap;font-size:12.5px">
+        <span><span class="mut">판정</span> <span class="res ${c.decision==='해당'?'yes':'no'}">${esc(c.decision||'—')}</span></span>
+        <span><span class="mut">심의</span> ${esc(c.review_type||'—')}${c.review_content?` · ${esc(c.review_content)}`:''}</span>
+        <span><span class="mut">의결일</span> <span class="mono">${esc(String(c.decided_at||'—'))}</span></span>
+        <span><span class="mut">KCD</span> <span class="mono">${(c.kcd_codes||[]).map(esc).join(', ')||'—'}</span></span></div>
+      <div class="mcap">사례 요약 (경위·판단 요지)</div>
+      <div class="card soft" style="white-space:pre-wrap;font-size:12.5px;line-height:21px;max-height:40vh;overflow:auto">${esc(c.summary||'(요약 없음)')}</div>
+      <div class="mcap" style="margin-top:10px">${icon('IconWand2',13)} 왜 이 사례가 유사한가 (AI)</div>
+      ${reason
+        ? `<div style="font-size:12.5px;color:#1d4ed8;line-height:20px">${esc(reason)}</div>`
+        : `<div class="mutetxt">아직 생성되지 않았습니다.
+             <button class="btn outline sm" id="simDetailGen" onclick="genSimReasonsThenReopen(${disId||'null'},${caseId})">AI 요약 생성</button></div>`}
+      <div class="mut" style="font-size:11px;margin-top:10px">※ 본 건과의 공통점·주의할 차이는 LLM 요약(참고용)이며, 원 사례 전문은 실사례 연계 시 의결서 원문으로 매핑됩니다.</div>
+    </div></div>`);
+}
+async function genSimReasonsThenReopen(disId, caseId){
+  const b = $('simDetailGen'); if(b){ b.disabled = true; b.innerHTML = '<span class="loading">요약 중</span>'; }
+  try{
+    const r = await (await fetch(`/cases/${doc.app_id}/similar-reasons`, {method:'POST'})).json();
+    if(r.error){ alert(r.error); }
+    else doc = await (await fetch(`/decision-doc/${doc.app_id}`)).json();
+  }catch(e){ alert('요약 실패 — API 서버 상태를 확인하세요'); }
+  $('simDetail')?.remove();
+  openSimDetail(disId, caseId);
 }
 
 /* ── 유사사례 'AI 왜 유사한지' 한줄 요약 (260724) ── */
@@ -1704,16 +1743,26 @@ function refPanelBody(){
 function toggleRef(i){ const el=$('ref'+i); el.style.display = el.style.display==='none' ? '' : 'none'; }
 
 function historyPanelBody(){
-  if(!editLog.length) return '<div class="mutetxt">이력이 없습니다.</div>';
-  return editLog.map(it=>`<div class="hitem">
+  /* 260725: 세션 임시 로그 중심 → 서버 field_edit(과거 수정이력 전체) 중심으로.
+     항목 클릭 시 이전/이후 diff 팝업 — 교정쌍은 정규화·재학습에 쓰인다. */
+  const hist = (fieldEdits||[]).map(e=>`<div class="hitem" style="cursor:pointer" title="클릭하면 이전/이후 비교"
+      onclick="openDiffModal('${esc(e.field)}',${e.dis_id||'null'})">
+    <div class="who">${esc(e.editor||'담당자')}</div>
+    <div class="when">${esc(String(e.created_at||'').replace('T',' ').slice(0,16))}</div>
+    <div class="what">${esc(FIELD_LABEL[e.field]||e.field)} 수정 ✎</div></div>`).join('');
+  const sess = editLog.map(it=>`<div class="hitem">
     <div class="who ${it.who==='AI 자동생성'?'ai':''}">${esc(it.who)}</div>
     <div class="when">${it.when}</div><div class="what">${esc(it.what)}</div></div>`).join('');
+  return `<div class="mcap">저장된 수정이력 (${(fieldEdits||[]).length}) — 과거 세션 포함</div>
+    ${hist||'<div class="mutetxt">저장된 수정이력이 없습니다.</div>'}
+    <div class="mcap" style="margin-top:14px">이번 세션 활동</div>
+    ${sess||'<div class="mutetxt">활동 없음</div>'}`;
 }
 
 function similarPanelBody(){
   if(similarCache === null) return '<div class="mutetxt"><span class="loading">동일 상이처(KCD) 과거 판정 검색 중</span></div>';
   if(!similarCache.length) return '<div class="mutetxt">유사 사례 없음</div>';
-  return similarCache.map(s=>`<div class="pcard" style="cursor:default">
+  return similarCache.map(s=>`<div class="pcard" style="cursor:pointer" title="클릭하면 사례 상세와 유사 사유를 봅니다" onclick="openSimDetail(null,${s.case_id})">
     <div class="pt"><span class="res ${s.decision==='해당'?'yes':s.decision==='비해당'?'no':'hold'}">${esc(s.decision||'대기')}</span>
       <span class="mono" style="font-weight:400;color:var(--slate-400);font-size:11px;margin-left:6px">KCD ${(s.kcd_codes||[]).map(esc).join(',')} · 유사도 ${s.similarity}</span></div>
     <div class="pm">${esc(String(s.summary||'')).slice(0,120)}</div>

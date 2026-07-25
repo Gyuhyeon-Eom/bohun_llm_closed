@@ -556,6 +556,18 @@ def api_similar_picks(scope: str, app_id: int | None = None,
     return similar_pick.get_picks(scope, app_id, dis_id, ga_id)
 
 
+@app.get("/case-pool/{case_id}")      # 과거사례 상세 (유사사례 클릭 팝업 — 260725)
+def api_case_pool(case_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("""SELECT case_id, review_type, review_content, exam_category,
+                              kcd_codes, decision, decided_at, summary
+                       FROM cases WHERE case_id=%s""", (case_id,))
+        return cur.fetchone() or {"error": "사례 없음"}
+
+
 @app.get("/cases-search")             # 위원 직접 추가용 사례 검색 (요약문·KCD)
 def api_cases_search(q: str, n: int = 10):
     from services import similar_pick
