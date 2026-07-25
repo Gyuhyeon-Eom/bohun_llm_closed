@@ -27,6 +27,18 @@ app.mount("/img", StaticFiles(directory=_WEB / "img"), name="img")
 app.mount("/css", StaticFiles(directory=_WEB / "css"), name="css")
 app.mount("/js", StaticFiles(directory=_WEB / "js"), name="js")
 _llm = get_llm()          # LLM_BACKEND=openai면 Ollama/FabriX, 기본은 mock
+
+@app.middleware("http")
+async def _no_stale_assets(request, call_next):
+    """JS/CSS/HTML 캐시 재검증 강제 — 배포 후 브라우저가 옛 화면을 계속 보여주는 문제 방지.
+    (ETag 304 재검증이라 트래픽 부담 없음 — 정적 파일이 바뀐 경우에만 재전송)"""
+    resp = await call_next(request)
+    path = request.url.path
+    if path.startswith(("/js/", "/css/")) or path == "/" or path.endswith(".html"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 _emb = get_embedder()
 
 
