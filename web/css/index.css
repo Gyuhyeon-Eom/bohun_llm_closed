@@ -461,3 +461,10 @@ table.ds.sheet input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26
 .draghandle{color:var(--slate-300);cursor:grab;font-size:14px;user-select:none;line-height:1}
 .cfrow:hover .draghandle{color:var(--slate-500)}
 .cfrow[draggable=true]:active{cursor:grabbing}
+
+/* 상이등급 심사 플로우 스트립 (260725) */
+.gflow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--blue-soft);border:1px solid #d5e2fb;border-radius:10px;padding:8px 14px;font-size:12.5px;margin-bottom:14px}
+.gflow a{color:var(--blue);font-weight:700;cursor:pointer}
+.gflow a:hover{text-decoration:underline}
+.gside button.sub{padding:6px 12px 6px 24px;font-size:12px;font-weight:500;color:#667085}
+.gside button.sub:hover{color:var(--blue);background:var(--blue-soft)}

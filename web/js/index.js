@@ -483,6 +483,10 @@ function openGrade(gaId){
   renderGradeDetail();
 }
 function gradeBack(){ gv.mode='list'; renderTable(); }
+function gotoGSec(id){
+  if(gv.tab !== 'info'){ setGTab('info'); }
+  setTimeout(()=>{ const el = $(id); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 60);
+}
 function setGTab(t){
   if(gv.tab==='info' && t!=='info') captureSheet();   // 심사표 편집값 보존
   gv.tab = t; gv.refOpen = false; renderGradeDetail();
@@ -495,6 +499,12 @@ function renderGradeDetail(){
   const menu = `<div class="gside">
       <button class="backlink" style="margin:0 0 10px" onclick="gradeBack()">${icon('IconArrowLeft',14)} 목록으로</button>
       <button class="${gv.tab==='info'?'on':''}" onclick="setGTab('info')">상세정보</button>
+      ${gv.tab==='info'?`
+      <button class="sub" onclick="gotoGSec('g_recv')">신검 접수 정보</button>
+      <button class="sub" onclick="gotoGSec('g_docs')">신검 서류 검토</button>
+      <button class="sub" onclick="gotoGSec('g_items')">상이처별 등급 검토</button>
+      <button class="sub" onclick="gotoGSec('g_sheet')">심사표 작성</button>
+      <button class="sub" onclick="gotoGSec('g_review')">검토사항·비고</button>`:''}
       <button class="${gv.tab==='doc'?'on':''}" onclick="setGTab('doc')">AI 심의의결서</button>
       <button class="${gv.tab==='prior'?'on':''}" onclick="setGTab('prior')">이전 심사 기록</button>
     </div>`;
@@ -524,7 +534,8 @@ function renderGradeDetail(){
     sheetRecalc();   // 심사표 비고·종합 제안등급 초기 계산
     Object.keys(gv.itemPreds).forEach(i=>{ const r=gv.itemPreds[i], el=$('ipred_'+i);   // 예측값 복원
       if(el && r && !r.error) el.innerHTML = `<span class="mut" style="font-size:10.5px">AI 참고 (별표3 대조)</span><br>
-        <span class="res yes" style="margin-right:4px">1순위 ${esc(r.grade1)}</span><span class="res hold">2순위 ${r.grade2?esc(r.grade2):'—'}</span>`; });
+        <span class="res yes" style="margin-right:4px">1순위 ${esc(r.grade1)}</span><span class="res hold">2순위 ${r.grade2?esc(r.grade2):'—'}</span>
+        ${(r.criteria&&r.criteria.length)?`<br><a class="backlink" style="margin:0;font-size:11px" onclick="openPredCriteria(${i})">별표3 근거 보기</a>`:''}`; });
   }
   if(gv.tab!=='doc' && g.is_real) loadGradeScan(g.ga_id);   // info: 스캔표 / prior: 스캔목록·누락판단 재사용
   renderGradeMissing();
@@ -652,46 +663,57 @@ function gradeInfoBody(g){
       <td><input id="si_opinion_${i}" value="${esc(sv(i,'opinion'))}" placeholder="상이정도 및 소견"></td>
       <td><input id="si_proposed_grade_${i}" value="${esc(sv(i,'proposed_grade'))}" placeholder="미입력 시 신검등급" oninput="sheetRecalc()"></td>
       <td><span id="si_ud_${i}" class="mut" style="font-size:11.5px"></span></td></tr>`).join('');
-  return `${blocks}
-    <div class="card soft" style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px;margin:12px 0 16px">
+  const flowStrip = `
+    <div class="gflow">${[['g_recv','① 신검 접수 정보'],['g_docs','② 신검 서류 검토'],['g_items','③ 상이처별 등급 검토'],['g_sheet','④ 심사표 작성'],['g_review','⑤ 검토사항·비고']]
+      .map(([id,l])=>`<a onclick="gotoGSec('${id}')">${l}</a>`).join('<span class="mut">→</span>')}
+      <span class="mut">→</span><a onclick="setGTab('doc')">심의의결서</a></div>`;
+  return `${flowStrip}
+    <h4 id="g_recv" style="margin-top:6px">① 신검 접수 정보 <span class="mut">— 신검종류·기준일자·직전등급 (재심의 대상 확인)</span></h4>
+    <div class="card soft" style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px;margin:8px 0 16px">
+      <span><span class="mut">신검종류</span> <span class="stepchip">${esc(g.apply_type||'—')}</span></span>
+      <span><span class="mut">구분</span> <span class="stepchip" style="${g.category==='고엽제'?'background:#fef3c7;color:#b45309':''}">${esc(g.category||'상이')}</span></span>
       <span><span class="mut">기준일자</span> <span class="mono">${dash(g.base_date)}</span></span>
       <span><span class="mut">등급기준일</span> <span class="mono">${dash(g.grade_date)}</span></span>
       <span><span class="mut">상이등급(기존→재심의)</span> ${dash(g.grade_change)}</span></div>
-    <h4>가. 신체검사 결과 · 심사표 <span class="mut">(수정 가능 — 종합 제안등급은 상이처별 제안등급을 따라 자동 계산 · 저장 시 XLSX 산출에 반영)</span></h4>
+    <h4 id="g_docs">② 신검 서류 검토 <span class="mut">— 소견서·검진결과통보서·판독지 원문 확인, 누락 판단은 상단 배너</span></h4>
+    <div id="gradeScanBox"></div>
+    ${g.is_real?'':'<div class="mutetxt" style="margin:4px 0 14px">표본 안건 — 스캔 서류 없음 (실데이터 안건은 이 자리에 OCR 원문·정규화 표가 표시됩니다). 관련자료는 상이처 블록의 [자료보기]로 확인하세요.</div>'}
+    <h4 id="g_items">③ 상이처별 등급 검토 <span class="mut">— 요건인정 상이처 → 직전등급 → 신검과목 → 신검등급 → 제안등급 한 플로우 · AI는 별표3 대조 참고</span></h4>
+    ${blocks}
+    ${g.onset_narrative?`<h4 style="font-weight:600">상이 발생경위</h4><div class="card soft" style="line-height:22px">${esc(g.onset_narrative)}</div>`:''}
+    ${tlRows?`<h4 style="font-weight:600">의무기록 <span class="mut">(진료 시간순)</span></h4>
+    <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
+      <th style="width:92px">진료일</th><th>의료기관</th><th style="width:80px">유형</th><th>진단명</th><th>소견</th></tr></thead><tbody>${tlRows}</tbody></table></div>`:''}
+    ${measRows?`<h4 style="font-weight:600">신체검사 측정치 <span class="mut">(${esc(g.exam_dept)} 실측)</span></h4>
+    <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:0"><thead><tr>
+      <th>검사항목</th><th>측정값</th><th>기준</th><th>판정</th></tr></thead><tbody>${measRows}</tbody></table></div>`:''}
+    ${g.specialist_opinion?`<h4 style="font-weight:600">보훈병원 전문의 소견</h4><div class="card soft" style="line-height:22px">${esc(g.specialist_opinion)}</div>`:''}
+    <h4 id="g_sheet">④ 심사표 작성 <span class="mut">— 수정 가능 · 종합 제안등급은 상이처별 제안등급 따라 자동 계산(최중증), 저장 시 XLSX 반영</span></h4>
     <div class="tblcard" style="margin-bottom:8px"><table class="ds sheet" style="min-width:860px"><thead><tr>
       <th style="width:30px">#</th><th>요건인정 상이처</th><th style="width:104px">직전등급</th><th style="width:90px">신검과목</th>
       <th style="width:104px">신검등급</th><th>상이정도 및 소견<br><span style="font-weight:400">(보훈병원 전문의)</span></th><th style="width:130px">상이처별 제안등급</th><th style="width:110px">비고(자동)</th></tr></thead>
       <tbody>${sheetRows}</tbody></table></div>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
       <div style="font-size:13px"><span class="mut">종합 제안등급</span> <b id="sheetTotal" class="ink" style="font-size:14px">—</b>
         <span id="sheetTotalNote" class="mut" style="font-size:11.5px"></span></div>
       <span style="flex:1"></span>
       <button class="btn primary sm" id="sheetSaveBtn" onclick="saveSheet()">${icon('IconCheck',13)} 심사표 저장</button></div>
-    <div id="gradeScanBox"></div>
-    ${items.length>1?`<p class="mutetxt" style="margin:0 0 16px">※ 종합판정(등급 상향 검토) 대상 기준: 7급 상이처 3개 이상일 때만 — 그 외에는 상이처별 최고(중한) 등급으로 종합 제안 (XLSX 심사표와 동일 규칙).</p>`:''}
-    ${g.onset_narrative?`<h4>상이 발생경위</h4><div class="card soft" style="line-height:22px">${esc(g.onset_narrative)}</div>`:''}
-    ${tlRows?`<h4>의무기록 <span class="mut">(진료 시간순)</span></h4>
-    <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:720px"><thead><tr>
-      <th style="width:92px">진료일</th><th>의료기관</th><th style="width:80px">유형</th><th>진단명</th><th>소견</th></tr></thead><tbody>${tlRows}</tbody></table></div>`:''}
-    ${measRows?`<h4>신체검사 측정치 <span class="mut">(${esc(g.exam_dept)} 실측)</span></h4>
-    <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:0"><thead><tr>
-      <th>검사항목</th><th>측정값</th><th>기준</th><th>판정</th></tr></thead><tbody>${measRows}</tbody></table></div>`:''}
-    ${g.specialist_opinion?`<h4>보훈병원 전문의 소견</h4><div class="card soft" style="line-height:22px">${esc(g.specialist_opinion)}</div>`:''}
-    ${g.prior_history?`<h4>이전 판정 · 재심의 경위</h4><div class="card" style="font-size:13px;color:var(--slate-700);line-height:22px">${esc(g.prior_history)}</div>`:''}
-    ${g.past_history?`<h4>과거력 · 기왕증</h4><div style="font-size:13px;color:var(--slate-700);line-height:22px;margin-bottom:12px">${esc(g.past_history)}</div>`:''}
-    ${g.route_note?`<h4>경로사항</h4><div class="card" style="font-size:13px;color:var(--slate-700);line-height:22px">${esc(g.route_note)}</div>`:''}
-    <h4>나. 검토사항 <span class="mut">(AI가 원문에서 추출·정리한 실무 체크포인트${items.length>1?' — 상이처별':''})</span></h4>
+    <p class="mutetxt" style="margin:0 0 16px">※ 종합판정(등급 상향 검토) 대상 기준: 7급 상이처 3개 이상일 때만 — 그 외에는 상이처별 최고(중한) 등급으로 종합 제안. 확정 후 [AI 심의의결서] 메뉴에서 조립 문안을 확인하세요.</p>
+    <h4 id="g_review">⑤ 검토사항 <span class="mut">(AI가 원문에서 추출·정리한 실무 체크포인트${items.length>1?' — 상이처별':''})</span></h4>
     ${items.length>1
       ? items.map((it,i)=>{const xs=i===0?(g.review_items||[]):(it.review_items||[]); return xs.length?`
         <div style="font-size:13px;font-weight:700;color:var(--ink);margin:10px 0 4px">[${esc(it.injury)}]</div>
         ${xs.map(t=>`<div style="font-size:13px;line-height:22px;color:var(--slate-700);margin-bottom:6px">○ ${esc(t)}</div>`).join('')}`:'';}).join('')
       : (g.review_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--slate-700);margin-bottom:6px">○ ${esc(t)}</div>`).join('')}
-    <h4>비고</h4>
+    <h4 style="font-weight:600">비고</h4>
     ${items.length>1
       ? items.map((it,i)=>{const xs=i===0?(g.note_items||[]):(it.note_items||[]); return xs.length?`
         <div style="font-size:13px;font-weight:700;color:var(--ink);margin:10px 0 4px">[${esc(it.injury)}]</div>
         ${xs.map(t=>`<div style="font-size:13px;line-height:22px;color:var(--muted-fg);margin-bottom:6px">◇ ${esc(t)}</div>`).join('')}`:'';}).join('')
-      : (g.note_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--muted-fg);margin-bottom:6px">◇ ${esc(t)}</div>`).join('')}`;
+      : (g.note_items||[]).map(t=>`<div style="font-size:13px;line-height:22px;color:var(--muted-fg);margin-bottom:6px">◇ ${esc(t)}</div>`).join('')}
+    ${g.prior_history?`<h4 style="font-weight:600">이전 판정 · 재심의 경위</h4><div class="card" style="font-size:13px;color:var(--slate-700);line-height:22px">${esc(g.prior_history)}</div>`:''}
+    ${g.past_history?`<h4 style="font-weight:600">과거력 · 기왕증</h4><div style="font-size:13px;color:var(--slate-700);line-height:22px;margin-bottom:12px">${esc(g.past_history)}</div>`:''}
+    ${g.route_note?`<h4 style="font-weight:600">경로사항</h4><div class="card" style="font-size:13px;color:var(--slate-700);line-height:22px">${esc(g.route_note)}</div>`:''}`;
 }
 /* ── 상이처별 AI 등급예측 인라인 (구 'AI 판정예측' 탭 대체 — 화면설계 260722) ── */
 async function predictItem(i){
@@ -710,9 +732,27 @@ async function predictItem(i){
     ? `<span class="mutetxt">⚠ ${esc(r.error)}</span>`
     : `<span class="mut" style="font-size:10.5px">AI 참고 (별표3 대조)</span><br>
        <span class="res yes" style="margin-right:4px">1순위 ${esc(r.grade1)}</span>
-       <span class="res hold">2순위 ${r.grade2?esc(r.grade2):'—'}</span>`;
+       <span class="res hold">2순위 ${r.grade2?esc(r.grade2):'—'}</span>
+       ${(r.criteria&&r.criteria.length)?`<br><a class="backlink" style="margin:0;font-size:11px" onclick="openPredCriteria(${i})">별표3 근거 보기</a>`:''}`;
   if(!r.error) logGradeEvent(gv.ga.ga_id, 'AI예측', 'AI 등급예측 실행', 'AI',
     `${it.injury} → 1순위 ${r.grade1}${r.grade2?` / 2순위 ${r.grade2}`:''} (제안등급은 신검등급·담당자 확정 우선)`, null, true);
+}
+
+/* ── 별표3 근거 팝업 (260725): AI 예측이 대조한 상이등급구분표 조항 ── */
+function openPredCriteria(i){
+  const r = gv.itemPreds[i]; if(!r || !r.criteria) return;
+  const it = gaItems(gv.ga)[i] || {};
+  document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="predCrit" onclick="if(event.target===this)this.remove()">
+    <div class="gmodal" style="width:720px">
+      <div class="mh"><span>별표3 대조 근거 — ${esc(it.injury||'')} <span class="mut" style="font-size:12px;font-weight:400">시행령 [별표3] 상이등급구분표</span></span>
+        <button class="backlink" style="margin:0" onclick="$('predCrit').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
+      ${r.criteria.map((c,k)=>`<div class="card" style="display:flex;gap:12px;align-items:baseline">
+        <span class="res ${k===0?'yes':'hold'}" style="white-space:nowrap">${esc(c.grade)} ${esc(c.class_no)}호</span>
+        <span style="flex:1;font-size:12.5px;line-height:20px">${esc(c.description)}</span>
+        <span class="mutetxt mono" style="white-space:nowrap">부합도 ${c.similarity}</span></div>`).join('')}
+      ${r.rationale?`<div class="mcap" style="margin-top:8px">예측 근거</div><div style="font-size:12.5px;line-height:20px">${esc(r.rationale)}</div>`:''}
+      <div class="mut" style="font-size:11px;margin-top:10px">※ AI 예측은 상병명 텍스트 대조 참고치 — 제안등급 확정은 신검등급(실측)·담당자 판단이 우선합니다.</div>
+    </div></div>`);
 }
 
 /* ── 수정가능 심사표: 입력 캡처 → 종합 제안등급 자동 계산(최중증) → 저장(injury_items) ── */
