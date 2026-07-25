@@ -456,3 +456,8 @@ table.ds.sheet input::placeholder{color:var(--slate-300);font-size:11px}
 table.ds th{background:#f4f6fa;color:#3d4757}
 table.ds.sheet input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,86,218,.1)}
 .gtabs button.on{color:var(--blue);border-color:var(--blue)}
+
+/* 자료 우선순위 드래그 핸들 (260725) — ⠿(2x3 점) */
+.draghandle{color:var(--slate-300);cursor:grab;font-size:14px;user-select:none;line-height:1}
+.cfrow:hover .draghandle{color:var(--slate-500)}
+.cfrow[draggable=true]:active{cursor:grabbing}

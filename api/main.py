@@ -374,6 +374,16 @@ def api_case_file_add(app_id: int, req: CaseFileReq):
     return case_file.add(app_id, req.kind, req.title, req.dis_id, req.note)
 
 
+class ReorderReq(BaseModel):
+    ids: list[int]                     # 드래그 후 순서대로의 cf_id
+
+
+@app.post("/cases/{app_id}/files/reorder")   # 자료 우선순위 저장 (260725 — 드래그 정렬)
+def api_case_file_reorder(app_id: int, req: ReorderReq):
+    from services import case_file
+    return case_file.reorder(app_id, req.ids)
+
+
 @app.post("/cases/{app_id}/files/ai-notes")   # 자료별 한 줄 AI 요약 (260724 — 왜 필요한 자료인지)
 def api_case_file_ai_notes(app_id: int):
     from services import case_file

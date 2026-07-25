@@ -100,9 +100,17 @@ def build_doc(app_id: int, emb) -> dict | None:
         d["precedents"] = [{"content": h["content"][:400],
                             "source": h["source_path"].split("#")[-1]} for h in phits]
 
-        # 3.나 유사사례 (그래프) + 담당자 선별(제외/추가·가중치 — 260721 회의 ③) 반영
+        # 3.나 유사사례 — 신청 경위(사연) 임베딩 유사도 기반 (260725: KCD 코드 매칭 → 경위 유사로 전환,
+        # 사례 풀 임베딩 미적재·무결과 시 KCD 그래프 폴백) + 담당자 선별(제외/추가·가중치) 반영
         from services import similar_pick as _sp
-        sims = cases_by_kcd([d["kcd_code"]], n=3) if d["kcd_code"] else []
+        from services.similar_case import find_similar as _fs
+        qtext = f"{(app.get('apply_story') or '')[:300]} {d['name']} {(d.get('onset_story') or '')[:300]}"
+        try:
+            sims = _fs(emb.encode([qtext])[0], n=3)
+        except Exception:
+            sims = []
+        if not sims and d["kcd_code"]:
+            sims = cases_by_kcd([d["kcd_code"]], n=3)
         picks = _sp.get_picks("case", app_id=app_id, dis_id=d["dis_id"])
         d["similar"] = _sp.apply_picks(sims, picks, "case_id", _sp.fetch_cases) if picks else sims
         _attach_sim_reasons(app_id, d)   # 'AI 왜 유사한지' 캐시 주입 (sim_reason — 없으면 무시)

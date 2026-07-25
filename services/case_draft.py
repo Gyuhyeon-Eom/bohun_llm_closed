@@ -114,6 +114,15 @@ def generate(app_id: int, section: str, llm, emb) -> dict:
     if not app:
         return {"error": "안건 없음"}
     dossier = "\n\n".join(decision_doc._dossier(app, d) for d in app["disabilities"])
+    # 자료 우선순위(담당자 드래그 정렬, 260725) — 상위 자료의 사실을 우선 인용하도록 주입
+    try:
+        from services import case_file as _cf
+        files = _cf.list_files(app_id)
+        if files:
+            flist = "\n".join(f"{i+1}. [{f['kind']}] {f['title']}" for i, f in enumerate(files[:12]))
+            dossier = f"[자료 우선순위 — 번호가 앞설수록 우선 인용·비중 높게]\n{flist}\n\n{dossier}"
+    except Exception:
+        pass
     if section == "s3":  # 법령·판례는 s3 서술에 필요
         laws = "\n".join(f"- {l['clause']}: {(l['passage'] or '원문 미적재')[:200]}" for l in app["laws"])
         dossier = f"[적용 법령]\n{laws}\n\n{dossier}"

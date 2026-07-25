@@ -72,8 +72,19 @@ def list_files(app_id: int) -> list[dict]:
     sync(app_id)   # 멱등 — 새 의무기록·스캔이 연결되면 목록에도 나타난다
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("""SELECT * FROM case_file WHERE app_id=%s
-                       ORDER BY is_final DESC, kind, cf_id""", (app_id,))
+                       ORDER BY is_final DESC, COALESCE(sort_order, 999999), kind, cf_id""", (app_id,))
         return cur.fetchall()
+
+
+def reorder(app_id: int, ids: list[int]) -> dict:
+    """자료 우선순위 저장 (260725) — 화면 드래그 순서 그대로 sort_order 부여.
+    우선순위는 초안 생성 시 '[자료 우선순위]' 블록으로 주입되어 상위 자료가 우선 인용된다."""
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        for i, cf_id in enumerate(ids):
+            cur.execute("UPDATE case_file SET sort_order=%s WHERE cf_id=%s AND app_id=%s",
+                        (i, cf_id, app_id))
+        conn.commit()
+    return {"ok": True, "n": len(ids)}
 
 
 def add(app_id: int, kind: str, title: str, dis_id=None, note=None,

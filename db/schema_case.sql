@@ -354,3 +354,6 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS six_month TEXT;            -- 6
 ALTER TABLE application ADD COLUMN IF NOT EXISTS team_lead TEXT;            -- 팀장
 ALTER TABLE application ADD COLUMN IF NOT EXISTS dept_head TEXT;            -- 과장
 ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;         -- 주심위원
+
+-- 자료 우선순위 (260725 — 드래그 정렬, 초안 생성 시 상위 자료 우선 인용)
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS sort_order INT;

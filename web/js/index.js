@@ -261,7 +261,7 @@ function renderWork(){
       <button class="sub" onclick="gotoLan('s1')">신청사항</button>
       <button class="sub" onclick="gotoLan('s2')">관련자료</button>
       <button class="sub" onclick="gotoLan('s3')">관계 법령·판단</button>
-      <button id="step1" onclick="openJudgeModal()">종합판단 (팝업)</button>
+      <button id="step1" onclick="openJudgeModal()">종합판단</button>
     </div>` : ''}
     <div id="paper"></div>
     ${doc && tab==='report' ? `<div id="rail">${[
@@ -1290,7 +1290,8 @@ async function loadMissingDocs(){
 /* ── 관련 자료 팝업 (v0.6): 란 '자료보기' → 사건 자료함 행을 팝업으로 (최종 자료 우선) ── */
 async function openRefModal(){
   if(!caseFiles){ try{ caseFiles = await (await fetch(`/cases/${doc.app_id}/files`)).json(); }catch(e){ caseFiles = []; } }
-  const row = f=>`<div class="refrow" style="cursor:default;display:flex;gap:8px;align-items:baseline">
+  const row = f=>`<div class="refrow cfrow" draggable="true" ondragstart="cfDragStart(event,${f.cf_id})" ondragover="cfDragOver(event)" ondrop="cfDrop(event,${f.cf_id})" style="cursor:default;display:flex;gap:8px;align-items:baseline">
+      <span class="draghandle" title="드래그로 우선순위 변경 — 상위 자료가 초안에 우선 인용됩니다">⠿</span>
       <span style="color:${f.is_final?'#1d4ed8':'var(--border-strong)'}">${f.is_final?'★':'☆'}</span>
       <span style="flex:1;font-size:12.5px"><span class="stepchip">${esc(f.kind)}</span> ${esc(f.title)}
         ${f.note?`<div class="mut" style="font-size:11.5px;margin-top:2px">${esc(f.note)}</div>`:''}</span>
@@ -1300,18 +1301,18 @@ async function openRefModal(){
     <div class="gmodal" style="width:640px">
       <div class="mh"><span>${icon('IconPaperclip',16)} 관련 자료 <span class="mut" style="font-size:12px;font-weight:400">— 사건 자료함 (★=최종 자료, 지정·업로드는 우측 자료함 패널)</span></span>
         <span style="display:flex;gap:8px;align-items:center">
-          <button class="btn outline sm" id="aiNotesBtn" onclick="genFileNotes()">${icon('IconWand2',12)} AI 요약 (무엇을 확인하는 자료인지)</button>
+          <button class="btn outline sm" id="aiNotesBtn" onclick="genFileNotes()">${icon('IconWand2',12)} AI 요약</button>
           <button class="backlink" style="margin:0" onclick="$('refModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></span></div>
       <div class="mcap">★ 최종 자료 (${fin.length})</div>${fin.map(row).join('')||'<div class="mutetxt">지정된 최종 자료 없음</div>'}
       <div class="mcap" style="margin-top:12px">기타 자료 (${rest.length})</div>${rest.map(row).join('')||'<div class="mutetxt">없음</div>'}
     </div></div>`);
 }
 /* ── AI 심의의결서 일괄 생성 (260725): 1~3장 순차 생성 + 진행 로딩바, 완료 후 수정·재생성 ── */
-async function genAllDrafts(){
+async function genAllDrafts(force){
   const secs = ['s1','s2','s3'];
   const todo = caseDrafts ? secs.filter(x=>!caseDrafts[x].content) : secs;
-  const targets = todo.length ? todo : secs;   // 전부 작성돼 있으면 전체 재생성
-  if(!todo.length && !confirm('세 란 모두 이미 작성되어 있습니다. 전체를 다시 생성할까요?\n(기존 내용은 수정이력에 남습니다)')) return;
+  const targets = force ? secs : (todo.length ? todo : secs);   // force=우선순위 변경 등 전체 재생성
+  if(!force && !todo.length && !confirm('세 란 모두 이미 작성되어 있습니다. 전체를 다시 생성할까요?\n(기존 내용은 수정이력에 남습니다)')) return;
   const names = {s1:'1. 신청사항', s2:'2. 관련자료', s3:'3. 관계법령·판단의 전제'};
   document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="genModal">
     <div class="gmodal" style="width:520px;text-align:center">
@@ -1581,7 +1582,8 @@ async function loadCaseFiles(){
 }
 function filesPanelBody(){
   if(!caseFiles){ loadCaseFiles(); return '<div class="mutetxt"><span class="loading">자료 불러오는 중</span></div>'; }
-  const row = f=>`<div class="refrow" style="cursor:default;display:flex;gap:8px;align-items:baseline">
+  const row = f=>`<div class="refrow cfrow" draggable="true" ondragstart="cfDragStart(event,${f.cf_id})" ondragover="cfDragOver(event)" ondrop="cfDrop(event,${f.cf_id})" style="cursor:default;display:flex;gap:8px;align-items:baseline">
+      <span class="draghandle" title="드래그로 우선순위 변경 — 상위 자료가 초안에 우선 인용됩니다">⠿</span>
       <button class="backlink" style="margin:0;font-size:14px;color:${f.is_final?'#1d4ed8':'var(--border-strong)'}" title="최종 자료 지정/해제" onclick="toggleFinal(${f.cf_id},${f.is_final?0:1})">${f.is_final?'★':'☆'}</button>
       <span style="flex:1;font-size:12px"><span class="stepchip">${esc(f.kind)}</span> ${esc(f.title)}
         ${f.note?`<div class="mutetxt" style="font-size:11px">${esc(f.note)}</div>`:''}</span>
@@ -1616,6 +1618,27 @@ async function uploadCaseFile(inp){
   await fetch(`/cases/${doc.app_id}/files/upload`, {method:'POST', body: fd});
   logEvent('담당자', `자료 파일 업로드: ${f.name}`);
   await loadCaseFiles();
+}
+
+/* ── 자료 우선순위 드래그 (260725): ⠿ 핸들로 순서 변경 → 저장 → 초안 재생성 제안 ── */
+let dragCf = null;
+function cfDragStart(e, id){ dragCf = id; e.dataTransfer.effectAllowed = 'move'; }
+function cfDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+async function cfDrop(e, targetId){
+  e.preventDefault();
+  if(dragCf === null || dragCf === targetId){ dragCf = null; return; }
+  const ids = caseFiles.map(f=>f.cf_id);
+  const from = ids.indexOf(dragCf), to = ids.indexOf(targetId);
+  if(from < 0 || to < 0){ dragCf = null; return; }
+  ids.splice(to, 0, ids.splice(from, 1)[0]);
+  dragCf = null;
+  await fetch(`/cases/${doc.app_id}/files/reorder`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ids})});
+  caseFiles = await (await fetch(`/cases/${doc.app_id}/files`)).json();
+  if(panel === 'files') renderPanel();
+  if($('refModal')){ $('refModal').remove(); openRefModal(); }
+  logEvent('담당자', '자료 우선순위 변경 (드래그)');
+  if(confirm('자료 우선순위가 변경되었습니다.\n변경된 순서를 반영해 초안(1~3장)을 다시 생성할까요?')) genAllDrafts(true);
 }
 
 function panelShell(title, ic, body){
