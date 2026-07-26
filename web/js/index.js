@@ -218,7 +218,7 @@ async function enterCase(id){
   fieldEdits = Array.isArray(fe) ? fe : [];
   try{ const cd = await (await fetch('/case-draft/'+id)).json(); caseDrafts = cd.drafts; draftGate = cd.gate; }
   catch(e){ caseDrafts = null; draftGate = null; }
-  draftEditing = null; caseFiles = null;
+  draftEditing = null; caseFiles = null; orderDirty = false;
   doc = d;
   tab='report'; curSec=0; panel='ai';
   editLog = []; similarCache = null; aiPanelLog = []; evOpen = {}; s3Modal = null;
@@ -1382,6 +1382,8 @@ async function openRefModal(){
         <span style="display:flex;gap:8px;align-items:center">
           <button class="btn outline sm" id="aiNotesBtn" onclick="genFileNotes()">${icon('IconWand2',12)} AI 요약</button>
           <button class="backlink" style="margin:0" onclick="$('refModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></span></div>
+      ${orderDirty?`<div class="warnbar" style="margin-bottom:10px;padding:8px 12px">우선순위 변경됨 — 초안 반영 전
+        <button class="btn primary sm" style="margin-left:8px" onclick="confirmOrderRegen()">${icon('IconWand2',12)} 우선순위 확정·초안 재생성</button></div>`:''}
       <div class="mcap">★ 최종 자료 (${fin.length})</div>${fin.map(row).join('')||'<div class="mutetxt">지정된 최종 자료 없음</div>'}
       <div class="mcap" style="margin-top:12px">기타 자료 (${rest.length})</div>${rest.map(row).join('')||'<div class="mutetxt">없음</div>'}
     </div></div>`);
@@ -1413,6 +1415,7 @@ async function genAllDrafts(force){
     if(bar) bar.style.width = `${Math.round((i + 1) / targets.length * 100)}%`;
   }
   logEvent('AI 자동생성', failed ? `심의의결서 일괄 생성 중단 — ${failed}` : `심의의결서 초안 일괄 생성 (${targets.length}개 란)`);
+  if(!failed) orderDirty = false;
   await loadDrafts();
   $('genModal')?.remove();
   if(failed) alert(failed);
@@ -1434,7 +1437,7 @@ async function saveDraft(sec){
     body: JSON.stringify({content: v})});
   logEvent('담당자', `심의서 ${sec} 란 수정 저장 — 교정쌍 축적`);
   lastDraftSave = nowStr().slice(11);
-  draftEditing = null; caseFiles = null;
+  draftEditing = null; caseFiles = null; orderDirty = false;
   await loadDrafts(); showSec(0);
 }
 async function toggleDraftCheck(sec, idx, checked){
@@ -1655,6 +1658,7 @@ function setPanel(p){
 }
 /* ── 사건 자료함: 자료를 행 단위(case_file)로 — 최종 자료(★) 지정, 추가·업로드 ── */
 let caseFiles = null;
+let orderDirty = false;   // 우선순위 변경 후 재생성 대기 (260725 — 확정 시에만 재생성)
 async function loadCaseFiles(){
   caseFiles = await (await fetch(`/cases/${doc.app_id}/files`)).json();
   if(panel==='files') renderPanel();
@@ -1668,7 +1672,10 @@ function filesPanelBody(){
         ${f.note?`<div class="mutetxt" style="font-size:11px">${esc(f.note)}</div>`:''}</span>
       ${f.file_path?`<a class="backlink" style="margin:0" title="파일 다운로드" href="/case-files/${f.cf_id}/download" target="_blank">${icon('IconDownload',12)}</a>`:''}</div>`;
   const fin = caseFiles.filter(f=>f.is_final), rest = caseFiles.filter(f=>!f.is_final);
-  return `<div style="font-size:11px;font-weight:700;color:#1d4ed8;margin-bottom:6px">★ 최종 자료 (${fin.length}) — 심의 근거 세트</div>
+  const dirtyBar = orderDirty ? `<div class="warnbar" style="margin-bottom:10px;padding:8px 12px">
+      우선순위 변경됨 — 초안에는 아직 반영 전입니다.
+      <button class="btn primary sm" style="margin-top:6px" onclick="confirmOrderRegen()">${icon('IconWand2',12)} 우선순위 확정·초안 재생성</button></div>` : '';
+  return `${dirtyBar}<div style="font-size:11px;font-weight:700;color:#1d4ed8;margin-bottom:6px">★ 최종 자료 (${fin.length}) — 심의 근거 세트</div>
     ${fin.map(row).join('')||'<div class="mutetxt">지정된 최종 자료 없음</div>'}
     <div style="font-size:11px;font-weight:700;color:var(--slate-400);margin:12px 0 6px">기타 자료 (${rest.length})</div>${rest.map(row).join('')}
     <div style="margin-top:12px;border-top:1px dashed var(--border-strong);padding-top:10px">
@@ -1714,10 +1721,15 @@ async function cfDrop(e, targetId){
   await fetch(`/cases/${doc.app_id}/files/reorder`, {method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({ids})});
   caseFiles = await (await fetch(`/cases/${doc.app_id}/files`)).json();
+  orderDirty = true;   // 재생성은 담당자가 [우선순위 확정·재생성]을 누를 때만 (드래그마다 X)
   if(panel === 'files') renderPanel();
   if($('refModal')){ $('refModal').remove(); openRefModal(); }
-  logEvent('담당자', '자료 우선순위 변경 (드래그)');
-  if(confirm('자료 우선순위가 변경되었습니다.\n변경된 순서를 반영해 초안(1~3장)을 다시 생성할까요?')) genAllDrafts(true);
+  logEvent('담당자', '자료 우선순위 변경 (드래그) — 확정 대기');
+}
+function confirmOrderRegen(){
+  if(!confirm('변경된 자료 우선순위를 반영해 초안(1~3장)을 다시 생성할까요?\n(기존 내용은 수정이력에 남습니다)')) return;
+  $('refModal')?.remove();
+  genAllDrafts(true);
 }
 
 function panelShell(title, ic, body){
