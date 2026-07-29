@@ -102,6 +102,7 @@ def vlm_transcribe(png: bytes) -> str:
     body = {
         "model": VLM_MODEL,
         "temperature": 0,
+        "max_tokens": 4096,   # 무제한 생성 방지 — 반복 루프에 빠지면 응답이 영원히 안 끝난다
         "messages": [{
             "role": "user",
             "content": [
@@ -165,7 +166,12 @@ def main():
         for no, png in render_pages(pdf, args.dpi):
             t0 = time.time()
             if args.backend == "vlm" and args.tiles > 1:
-                text = "\n".join(fn["vlm"](t) for t in split_tiles(png, args.tiles))
+                parts = []
+                for ti, t in enumerate(split_tiles(png, args.tiles), 1):
+                    tt = time.time()
+                    parts.append(fn["vlm"](t))
+                    print(f"    p{no} tile{ti}/{args.tiles}: {round(time.time()-tt,1)}s")
+                text = "\n".join(parts)
             else:
                 text = fn[args.backend](png)
             entry = {"page": no, "chars": len(text), "sec": round(time.time() - t0, 1),
