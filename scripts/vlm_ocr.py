@@ -50,6 +50,49 @@ def render_pages(pdf: Path, dpi: int):
         yield i, pix.tobytes("png")
 
 
+def split_tiles(png: bytes, n: int, overlap: float = 0.08) -> list[bytes]:
+    """페이지를 세로 n등분(겹침 포함) — VLM 비전 인코더는 이미지를 ~900px대로 축소해서 보므로
+    A4 전장을 통짜로 넣으면 글자가 뭉개진다. 타일로 나누면 타일당 유효 해상도가 n배."""
+    if n <= 1:
+        return [png]
+    import io
+    from PIL import Image
+    im = Image.open(io.BytesIO(png))
+    h = im.height
+    band = h // n
+    ov = int(band * overlap)
+    out = []
+    for k in range(n):
+        top = max(0, k * band - ov)
+        bot = min(h, (k + 1) * band + ov)
+        buf = io.BytesIO()
+        im.crop((0, top, im.width, bot)).save(buf, "PNG")
+        out.append(buf.getvalue())
+    return out
+
+
+def selftest() -> int:
+    """알려진 문구 이미지를 보내 이미지가 모델에 실제 전달되는지 확인.
+    실패하면 Ollama 버전이 OpenAI 호환 이미지 입력을 무시하는 것 — ollama 업그레이드 필요."""
+    from PIL import Image, ImageDraw, ImageFont
+    import io
+    probe = "보훈심사 검증 7124"
+    im = Image.new("RGB", (640, 120), "white")
+    d = ImageDraw.Draw(im)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 48)
+    except OSError:
+        font = ImageFont.truetype("/System/Library/Fonts/AppleSDGothicNeo.ttc", 48)
+    d.text((20, 30), probe, font=font, fill="black")
+    buf = io.BytesIO(); im.save(buf, "PNG")
+    out = vlm_transcribe(buf.getvalue())
+    ok = "7124" in out and ("보훈" in out or "심사" in out)
+    print(f"프로브 문구: {probe}\n모델 응답  : {out[:120]}")
+    print("판정: " + ("정상 — 이미지가 모델에 전달됨" if ok
+                     else "실패 — 이미지가 모델에 전달되지 않음. Ollama 업그레이드(brew upgrade ollama) 후 재시도"))
+    return 0 if ok else 2
+
+
 def vlm_transcribe(png: bytes) -> str:
     import requests
     b64 = base64.b64encode(png).decode()
@@ -99,12 +142,19 @@ def sanity(text: str) -> list[str]:
 
 def main():
     ap = argparse.ArgumentParser(description="VLM 스캔 OCR 프로토타입")
-    ap.add_argument("pdfs", nargs="+", help="스캔 PDF 경로")
+    ap.add_argument("pdfs", nargs="*", help="스캔 PDF 경로")
     ap.add_argument("-o", "--out", default="out_vlm")
-    ap.add_argument("--dpi", type=int, default=200)
+    ap.add_argument("--dpi", type=int, default=260)
+    ap.add_argument("--tiles", type=int, default=3, help="페이지 세로 분할 수 (1=통짜 — 전장 A4는 글자 뭉개짐)")
     ap.add_argument("--backend", choices=["vlm", "tesseract", "mock"], default="vlm")
     ap.add_argument("--compare", action="store_true", help="VLM과 tesseract를 모두 돌려 페이지별 비교")
+    ap.add_argument("--selftest", action="store_true", help="이미지가 모델에 전달되는지 프로브 문구로 확인")
     args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
+    if not args.pdfs:
+        ap.error("PDF 경로를 지정하거나 --selftest 를 사용하세요")
 
     fn = {"vlm": vlm_transcribe, "tesseract": tess_transcribe, "mock": mock_transcribe}
     for pdf_path in args.pdfs:
@@ -114,7 +164,10 @@ def main():
         pages, report = [], {"file": pdf.name, "backend": args.backend, "model": VLM_MODEL, "pages": []}
         for no, png in render_pages(pdf, args.dpi):
             t0 = time.time()
-            text = fn[args.backend](png)
+            if args.backend == "vlm" and args.tiles > 1:
+                text = "\n".join(fn["vlm"](t) for t in split_tiles(png, args.tiles))
+            else:
+                text = fn[args.backend](png)
             entry = {"page": no, "chars": len(text), "sec": round(time.time() - t0, 1),
                      "warnings": sanity(text) if args.backend == "vlm" else []}
             if args.compare and args.backend == "vlm":
