@@ -1,0 +1,52 @@
+# 보훈심사 AI 지원 시스템 — API 컨테이너
+#
+# 두 가지 빌드 경로:
+#   [온라인]  docker build -f docker/Dockerfile.api -t bohun-api .
+#   [폐쇄망]  wheel 번들을 build context에 두고 --build-arg OFFLINE=1
+#            (pip가 인터넷 대신 wheels/ 디렉터리에서만 설치 — pva_ai- 반입 번들 그대로)
+#            docker build -f docker/Dockerfile.api --build-arg OFFLINE=1 -t bohun-api .
+#
+# ML 미포함 경량 빌드(개발·시연: EMBED_BACKEND=hash): --build-arg WITH_ML=0
+#   FlagEmbedding(torch ~2GB)을 제외해 이미지가 5GB→1GB 이하로 준다.
+FROM python:3.12-slim
+
+ARG OFFLINE=0
+ARG WITH_ML=1
+
+# tesseract: 개발 대체 OCR (운영이 사이냅/VLM으로 확정되면 제거 가능)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-kor \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+# wheels/ 는 폐쇄망 빌드 시에만 존재 (온라인 빌드는 빈 디렉터리)
+COPY wheels* /wheels/
+
+RUN if [ "$WITH_ML" = "1" ]; then cp requirements.txt /tmp/req.txt; \
+    else grep -v FlagEmbedding requirements.txt > /tmp/req.txt; fi \
+ && if [ "$OFFLINE" = "1" ]; then \
+        pip install --no-cache-dir --no-index --find-links=/wheels -r /tmp/req.txt; \
+    else \
+        pip install --no-cache-dir -r /tmp/req.txt; \
+    fi \
+ && rm -rf /wheels
+
+COPY api ./api
+COPY config ./config
+COPY core ./core
+COPY services ./services
+COPY ingestion ./ingestion
+COPY orchestration ./orchestration
+COPY db ./db
+COPY mockgen ./mockgen
+COPY scripts ./scripts
+COPY web ./web
+COPY data/laws ./data/laws
+COPY data/manuals ./data/manuals
+COPY data/precedents ./data/precedents
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+# 엔트리포인트: DB 대기 → 스키마 멱등 적용 → (SEED_ON_START=1이면 룰·그래프 적재) → uvicorn
+CMD ["python", "scripts/docker_entrypoint.py"]

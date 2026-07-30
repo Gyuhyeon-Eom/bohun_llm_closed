@@ -348,7 +348,36 @@ def ingest(path, dpi=200):
              "\f".join(texts), json.dumps(blocks, ensure_ascii=False)))
         sd_id = cur.fetchone()[0]
         conn.commit()
+    _store_original(sd_id, dest, pages, texts)
     return sd_id, head, len(blocks), ocr_used
+
+
+def _store_original(sd_id: int, local_path: str, pages: int, texts: list[str]):
+    """원본을 객체 스토리지에 적재 + 페이지 상태(file_page) 생성 — DB정의서 v0.6.
+    STORAGE_BACKEND=local이면 obj_key만 로컬 경로로 기록(현행 동작 유지)."""
+    import psycopg
+    from config.settings import PG_DSN
+    from core.storage import get_storage
+    st = get_storage()
+    fname = os.path.basename(local_path)
+    try:
+        meta = (st.put_file(f"scans/{sd_id}/{fname}", local_path)
+                if st.backend == "minio" else
+                {"backend": "local", "bucket": None, "obj_key": local_path})
+    except Exception as e:
+        print(f"  [storage] 원본 적재 실패({e}) — 로컬 경로 유지")
+        meta = {"backend": "local", "bucket": None, "obj_key": local_path}
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE scan_doc SET bucket=%s, obj_key=%s WHERE sd_id=%s",
+                    (meta["bucket"], meta["obj_key"], sd_id))
+        for no in range(1, (pages or 0) + 1):
+            has_txt = bool(texts[no - 1].strip()) if no <= len(texts) else False
+            cur.execute(
+                "INSERT INTO file_page(sd_id, page_no, txt_layer, ocr_done)"
+                " VALUES (%s,%s,%s,%s)"
+                " ON CONFLICT (sd_id, page_no) DO UPDATE SET ocr_done=EXCLUDED.ocr_done",
+                (sd_id, no, has_txt, has_txt))
+        conn.commit()
 
 
 def main():

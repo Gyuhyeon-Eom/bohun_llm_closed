@@ -773,8 +773,15 @@ def api_scan_doc_file(sd_id: int, dl: int = 0):
     import psycopg
     from config.settings import PG_DSN
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
-        cur.execute("SELECT orig_path, file_name FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        cur.execute("SELECT orig_path, file_name, obj_key FROM scan_doc WHERE sd_id=%s", (sd_id,))
         row = cur.fetchone()
+    # MinIO 원본이면 presigned URL 302 — 브라우저 #page= 프래그먼트는 리다이렉트에도 유지됨
+    if row and row[2] and not dl:
+        from core.storage import get_storage
+        st = get_storage()
+        if st.backend == "minio" and st.exists(row[2]):
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(st.presigned_url(row[2]), status_code=302)
     if not row or not row[0] or not os.path.exists(row[0]):
         return {"error": "원본 파일 없음"}
     disp = "attachment" if dl else "inline"
@@ -782,6 +789,59 @@ def api_scan_doc_file(sd_id: int, dl: int = 0):
              else "application/pdf")
     return FileResponse(row[0], filename=row[1], media_type=media,
                         content_disposition_type=disp)
+
+
+@app.get("/scan-docs/{sd_id}/url")    # 원본 열람 URL 발급 (minio=presigned, local=앱 경로)
+def api_scan_doc_url(sd_id: int, page: int = 0):
+    import psycopg
+    from config.settings import PG_DSN
+    from core.storage import get_storage
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT obj_key FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        row = cur.fetchone()
+    st = get_storage()
+    if row and row[0] and st.backend == "minio" and st.exists(row[0]):
+        from config.settings import PRESIGNED_EXPIRES_S
+        return {"url": st.presigned_url(row[0], page or None), "backend": "minio",
+                "expires_s": PRESIGNED_EXPIRES_S}
+    frag = f"#page={page}" if page else ""
+    return {"url": f"/scan-docs/{sd_id}/file{frag}", "backend": "local", "expires_s": None}
+
+
+@app.get("/scan-docs/{sd_id}/pages")  # 페이지 처리상태 (file_page — 텍스트층/OCR/검수/반영)
+def api_scan_doc_pages(sd_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT page_no, txt_layer, ocr_done, reviewed, applied, confidence"
+                    " FROM file_page WHERE sd_id=%s ORDER BY page_no", (sd_id,))
+        return {"sd_id": sd_id, "pages": cur.fetchall()}
+
+
+class PageStateReq(BaseModel):
+    reviewed: bool | None = None
+    applied: bool | None = None
+
+
+@app.post("/scan-docs/{sd_id}/pages/{page_no}")  # 페이지 검수/반영 상태 갱신 (담당자)
+def api_scan_doc_page_update(sd_id: int, page_no: int, req: PageStateReq):
+    import psycopg
+    from config.settings import PG_DSN
+    sets, vals = [], []
+    if req.reviewed is not None:
+        sets.append("reviewed=%s"); vals.append(req.reviewed)
+    if req.applied is not None:
+        sets.append("applied=%s"); vals.append(req.applied)
+    if not sets:
+        return {"error": "갱신할 상태 없음"}
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute(f"UPDATE file_page SET {', '.join(sets)} WHERE sd_id=%s AND page_no=%s",
+                    (*vals, sd_id, page_no))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"error": "해당 페이지 없음"}
+    return {"ok": True, "sd_id": sd_id, "page_no": page_no}
 
 
 @app.post("/scan-docs/{sd_id}/to-case")   # 스캔 문서 → 요건심사 사건 변환 (HITL 전제)

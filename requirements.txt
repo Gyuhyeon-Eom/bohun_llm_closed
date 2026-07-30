@@ -12,3 +12,5 @@ pytesseract        # scripts/ocr_ingest_scans.py (OCR — 시스템에 tesseract
 pillow             # OCR 이미지 처리
 pytest             # tests/ 회귀 스위트 (개발용 — 운영 서버 필수 아님)
 python-multipart     # 사건 자료함 파일 업로드 (FastAPI UploadFile)
+minio              # 객체 스토리지 (원본 보관 — STORAGE_BACKEND=minio, 미설치·local이면 파일시스템)
+langgraph          # 챗봇 RAG 오케스트레이션 (ORCH_BACKEND=langgraph, 미설치면 plain 폴백)

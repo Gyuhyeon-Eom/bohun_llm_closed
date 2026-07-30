@@ -357,3 +357,25 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;         -- �
 
 -- 자료 우선순위 (260725 — 드래그 정렬, 초안 생성 시 상위 자료 우선 인용)
 ALTER TABLE case_file ADD COLUMN IF NOT EXISTS sort_order INT;
+
+-- ── 객체 스토리지 (DB정의서 v0.6 — 원본=MinIO, 페이지 상태 관리) ──
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS bucket  TEXT;   -- MinIO 버킷 (local이면 NULL)
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS obj_key TEXT;   -- 객체 키 — presigned 발급용
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS bucket  TEXT;
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS obj_key TEXT;
+
+-- 원본객체페이지 (09b): 페이지 단위 열람·처리상태. presigned URL은 만료형이라 저장하지 않는다.
+CREATE TABLE IF NOT EXISTS file_page (
+  fp_id      BIGSERIAL PRIMARY KEY,
+  sd_id      BIGINT NOT NULL,               -- scan_doc 연결
+  page_no    INT NOT NULL,                  -- 1-base
+  txt_layer  BOOLEAN,                       -- 텍스트층 존재(Y면 OCR 생략 페이지)
+  ocr_done   BOOLEAN DEFAULT false,         -- OCR/VLM 텍스트 산출 여부
+  reviewed   BOOLEAN DEFAULT false,         -- 사람 검수 완료
+  applied    BOOLEAN DEFAULT false,         -- 업무테이블 반영 완료
+  confidence NUMERIC(5,2),                  -- 페이지 평균 신뢰도(%) — VLM은 기계검사 파생값
+  preview_key TEXT,                         -- 썸네일 객체 키(선택)
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(sd_id, page_no)
+);
+CREATE INDEX IF NOT EXISTS idx_file_page_pending ON file_page(sd_id) WHERE ocr_done = false;

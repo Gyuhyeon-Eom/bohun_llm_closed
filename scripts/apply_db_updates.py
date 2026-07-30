@@ -37,6 +37,24 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS team_lead TEXT;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS dept_head TEXT;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;
 ALTER TABLE case_file ADD COLUMN IF NOT EXISTS sort_order INT;
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS bucket  TEXT;
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS obj_key TEXT;
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS bucket  TEXT;
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS obj_key TEXT;
+CREATE TABLE IF NOT EXISTS file_page (
+  fp_id      BIGSERIAL PRIMARY KEY,
+  sd_id      BIGINT NOT NULL,
+  page_no    INT NOT NULL,
+  txt_layer  BOOLEAN,
+  ocr_done   BOOLEAN DEFAULT false,
+  reviewed   BOOLEAN DEFAULT false,
+  applied    BOOLEAN DEFAULT false,
+  confidence NUMERIC(5,2),
+  preview_key TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(sd_id, page_no)
+);
+CREATE INDEX IF NOT EXISTS idx_file_page_pending ON file_page(sd_id) WHERE ocr_done = false;
 CREATE TABLE IF NOT EXISTS sim_reason (
   sr_id      BIGSERIAL PRIMARY KEY,
   app_id     BIGINT NOT NULL,

@@ -102,8 +102,24 @@ def save_upload(app_id: int, filename: str, data: bytes, kind: str, note=None) -
     path = os.path.join(UPLOAD_DIR, f"app{app_id}_{safe}")
     with open(path, "wb") as f:
         f.write(data)
+    # 객체 스토리지 병행 적재 (STORAGE_BACKEND=minio일 때) — DB정의서 v0.6
+    bucket = obj_key = None
+    try:
+        from core.storage import get_storage
+        st = get_storage()
+        if st.backend == "minio":
+            meta = st.put_bytes(f"case-files/{app_id}/{safe}", data)
+            bucket, obj_key = meta["bucket"], meta["obj_key"]
+    except Exception:
+        pass  # 스토리지 장애가 업로드 자체를 막지 않게 — 로컬 경로는 항상 보존
     add(app_id, kind or "추가 자료", safe, note=note, file_name=safe, file_path=path)
-    return {"ok": True, "file_name": safe}
+    if obj_key:
+        with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+            cur.execute("UPDATE case_file SET bucket=%s, obj_key=%s"
+                        " WHERE app_id=%s AND title=%s AND file_name=%s",
+                        (bucket, obj_key, app_id, safe, safe))
+            conn.commit()
+    return {"ok": True, "file_name": safe, "storage": "minio" if obj_key else "local"}
 
 
 def set_final(cf_id: int, is_final: bool) -> dict:

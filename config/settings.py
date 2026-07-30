@@ -60,3 +60,22 @@ REFLEXION_MAX_PASSES = int(os.getenv("REFLEXION_MAX_PASSES", "1"))
 # 저신뢰 블록만 FabriX로 교정 - 160만 페이지 전수 LLM 투입은 토큰 비용상 비현실적
 VERIFY_CONF_THRESHOLD = 0.85  # TODO(확인): 외부 OCR 솔루션의 confidence 분포 확인 후 조정
 VERIFY_ALL = False            # True면 전 블록 검증 (소량·고위험 문서 전용)
+
+# --- 객체 스토리지 (DB정의서 v0.6: 원본은 MinIO, 열람은 presigned URL) ---
+# STORAGE_BACKEND: "local"(기본 — 파일시스템, 현행 경로 그대로) | "minio"(운영)
+#   minio 전환 시 원본 업로드가 버킷/객체키로 저장되고, 원본 열람(/scan-docs/{id}/file 등)은
+#   presigned URL 302 리다이렉트로 전환된다 (화면 코드 수정 불필요).
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")        # host:port (스킴 없이)
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "bohun")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "bohun-secret")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "bohun-origin")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "0") == "1"                  # 폐쇄망 내부 http 기본
+# 브라우저가 접근하는 외부 주소가 다르면 지정 (도커: 내부 minio:9000 / 외부 localhost:9000)
+MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT", "")
+PRESIGNED_EXPIRES_S = int(os.getenv("PRESIGNED_EXPIRES_S", "600"))    # 열람 URL 만료(초)
+
+# --- 오케스트레이션 (LangGraph) ---
+# ORCH_BACKEND: "plain"(기본 — 현행 절차식 루프) | "langgraph"(그래프 오케스트레이션)
+#   langgraph 미반입 환경에서 "langgraph" 지정 시 자동으로 plain 폴백 (기동 실패 없음).
+ORCH_BACKEND = os.getenv("ORCH_BACKEND", "plain")
