@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS file_page (
   UNIQUE(sd_id, page_no)
 );
 CREATE INDEX IF NOT EXISTS idx_file_page_pending ON file_page(sd_id) WHERE ocr_done = false;
+CREATE TABLE IF NOT EXISTS llm_cache (
+  cache_key  CHAR(64) PRIMARY KEY,
+  prompt_name TEXT,
+  response   TEXT,
+  hits       INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS sim_reason (
   sr_id      BIGSERIAL PRIMARY KEY,
   app_id     BIGINT NOT NULL,

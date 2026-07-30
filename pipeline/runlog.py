@@ -21,7 +21,13 @@ class RunLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.flow = flow
         self._t0 = time.time()
-        self._write({"stage": "_start", "flow": flow})
+        # 프롬프트 버전 지문(260730) — 이 런이 어떤 프롬프트로 생성했는지 매니페스트에 고정
+        try:
+            from core.llm_client import prompt_fingerprints
+            fps = prompt_fingerprints()
+        except Exception:
+            fps = {}
+        self._write({"stage": "_start", "flow": flow, "prompt_fingerprints": fps})
 
     def _write(self, rec: dict):
         rec = {"ts": datetime.now().isoformat(timespec="seconds"), **rec}

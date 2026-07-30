@@ -379,3 +379,13 @@ CREATE TABLE IF NOT EXISTS file_page (
   UNIQUE(sd_id, page_no)
 );
 CREATE INDEX IF NOT EXISTS idx_file_page_pending ON file_page(sd_id) WHERE ocr_done = false;
+
+-- LLM 응답 캐시 (260730): 동일 프롬프트 재호출 방지 — API 토큰 과금 절감·결정성.
+-- 키 = sha256(백엔드|모델|프롬프트명|프롬프트버전|프롬프트) — 내용이 바뀌면 키도 바뀐다.
+CREATE TABLE IF NOT EXISTS llm_cache (
+  cache_key  CHAR(64) PRIMARY KEY,
+  prompt_name TEXT,                          -- 관측용 (어떤 기능의 캐시인지)
+  response   TEXT,
+  hits       INT DEFAULT 0,                  -- 절감 효과 측정
+  created_at TIMESTAMPTZ DEFAULT now()
+);

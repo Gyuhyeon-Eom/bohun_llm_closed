@@ -89,6 +89,23 @@ def clear_norms(sd_id: int) -> dict:
     return {"sd_id": sd_id, "cleared": len(blocks)}
 
 
+NORM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "doc_type": {"type": ["string", "null"]},
+        "date": {"type": ["string", "null"]},
+        "hospital": {"type": ["string", "null"]},
+        "disease": {"type": ["string", "null"]},
+        "grade": {"type": ["string", "null"]},
+        "exam_kind": {"type": ["string", "null"]},
+        "opinion": {"type": ["string", "null"]},
+        "key_findings": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": ["string", "null"]},
+    },
+    "required": ["doc_type", "summary"],
+}
+
+
 def normalize_scan(sd_id: int, force: bool = False, llm=None, limit: int | None = None) -> dict:
     """scan_doc 1건의 하위문서 블록 정규화. 이미 된 블록은 건너뜀(force=재실행).
     limit: 이번 호출에서 처리할 최대 블록 수 — UI가 진행률을 보여주며 스텝 실행할 때 사용.
@@ -117,12 +134,13 @@ def normalize_scan(sd_id: int, force: bool = False, llm=None, limit: int | None 
             text = _block_text(raw_lines, blocks, i)
             norm = None
             try:
-                out = llm.generate("ocr_normalize", doc_title=b.get("doc") or "의무기록",
-                                   ocr_text=text, corrections=corrections)
-                norm = _parse_json(out)
-                if norm is not None:
-                    norm["source"] = "llm"
-                    n_llm += 1
+                # 구조화 출력(260730): 서빙이 json_schema 지원 시 JSON 실패율 0 — 미지원·Mock은
+                # 파싱 폴백, 그마저 실패하면 아래 규칙 폴백 (기존 동작 보존)
+                norm = llm.generate_json("ocr_normalize", NORM_SCHEMA,
+                                         doc_title=b.get("doc") or "의무기록",
+                                         ocr_text=text, corrections=corrections)
+                norm["source"] = "llm"
+                n_llm += 1
             except Exception:
                 norm = None
             if norm is None:

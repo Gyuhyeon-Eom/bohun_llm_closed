@@ -135,10 +135,16 @@ def get_file(cf_id: int) -> dict | None:
         return cur.fetchone()
 
 
+# 구조화 출력 스키마(260730): {"notes": {"<자료 제목>": "<한 줄 요약>"}}
+NOTES_SCHEMA = {"type": "object",
+                "properties": {"notes": {"type": "object",
+                                         "additionalProperties": {"type": "string"}}},
+                "required": ["notes"]}
+
+
 def ai_notes(app_id: int, llm) -> dict:
     """자료별 한 줄 AI 요약 — '무엇을 확인하는 자료이고 왜 필요한지' (note 빈 행만 채움).
     사실 생성 금지: 목록·사건 요약에 있는 정보만 사용, 위치(원문 행)는 명시된 경우만."""
-    from services.ocr_normalize import _parse_json
     files = list_files(app_id)
     targets = [f for f in files if not (f.get("note") or "").strip()]
     if not targets:
@@ -155,10 +161,15 @@ def ai_notes(app_id: int, llm) -> dict:
                f"신청상이: {dis_txt}\n"
                f"경위: {(app.get('apply_story') or '')[:200]}")
     flist = "\n".join(f"- [{f['kind']}] {f['title']}" for f in targets)
-    text = llm.generate("file_notes", case_summary=summary, files=flist)
-    if text.startswith("[MOCK"):
-        return {"error": "생성 LLM 미연결(mock 모드) — FabriX/Ollama 연동 시 자동 요약됩니다"}
-    parsed = _parse_json(text) or {}
+    try:
+        # 구조화 출력(260730): json_schema 강제 디코딩 — 코드펜스·잡설로 인한 파싱 실패 제거
+        parsed = llm.generate_json("file_notes", NOTES_SCHEMA,
+                                   case_summary=summary, files=flist)
+    except ValueError:
+        # JSON 미산출 — Mock([MOCK] 문자열)은 안내, 실 LLM 불량 응답은 기존처럼 무갱신 진행
+        if type(llm).__name__ == "MockLLM":
+            return {"error": "생성 LLM 미연결(mock 모드) — FabriX/Ollama 연동 시 자동 요약됩니다"}
+        parsed = {}
     notes = parsed.get("notes") or {}
     updated = 0
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
