@@ -24,9 +24,17 @@ _NOISE = set("·¸'˙‚ˈ|■◆▶※")
 
 
 def _block_text(raw_lines, blocks, idx, max_chars=3600):
-    """블록 idx의 원문 구간 (시작 라인 ~ 다음 블록 시작 전)."""
+    """블록 idx의 원문 구간 (시작 라인 ~ 다음 블록 시작 전).
+    'line' 없는 블록(PDF 판독지 검사 블록은 'page' 기반)은 페이지 구간으로 폴백."""
+    if blocks[idx].get("line") is None and blocks[idx].get("page"):
+        # 페이지 단위 폴백 — raw_text는 \f(페이지) 구분으로 저장됨
+        pg = blocks[idx]["page"]
+        pages = "\n".join(raw_lines).split("\f")
+        txt = pages[pg - 1] if 0 < pg <= len(pages) else "\n".join(raw_lines)
+        return "\n".join(ln for ln in txt.splitlines() if ln.strip())[:max_chars]
     start = max(0, (blocks[idx].get("line") or 1) - 1)
-    end = (blocks[idx + 1].get("line") - 1) if idx + 1 < len(blocks) else len(raw_lines)
+    nxt = blocks[idx + 1].get("line") if idx + 1 < len(blocks) else None
+    end = (nxt - 1) if nxt else len(raw_lines)
     txt = "\n".join(ln for ln in raw_lines[start:end] if ln.strip())
     return txt[:max_chars]
 
