@@ -29,6 +29,12 @@ def _print_config():
     print(f"  DB      : {st.PG_DSN.split('@')[-1]}")
     print(f"  스토리지: {st.STORAGE_BACKEND}"
           + (f" → {st.MINIO_ENDPOINT}/{st.MINIO_BUCKET}" if st.STORAGE_BACKEND == "minio" else ""))
+    print(f"  모델 라우팅: 심층={st.LLM_MODEL_MAIN} / 경량={st.LLM_MODEL_LIGHT}"
+          + (" (단일 모델)" if st.LLM_MODEL_MAIN == st.LLM_MODEL_LIGHT else ""))
+    apis = {"Parsing": st.PARSING_API, "Chunking": st.CHUNKING_API, "Embedding": st.EMBEDDING_API,
+            "Rerank": st.RERANK_API, "SecurityFilter": st.SECURITY_FILTER_API}
+    on = [k for k, v in apis.items() if v]
+    print(f"  플랫폼 API: {', '.join(on) if on else '(미설정 — 로컬 폴백)'}")
     print(f"  오케스트레이션: {st.ORCH_BACKEND}")
     print("─────────────────────────────────────────────")
 
@@ -90,6 +96,20 @@ def check() -> int:
     probe("VLM(비전 전사)", _vlm, "VLM_ENDPOINT/VLM_MODEL 설정 (FabriX 이미지 입력 규격)")
     probe("임베딩", _emb, "EMBED_BACKEND=bge EMBED_MODEL=<bge-m3 반입 경로>")
     probe("객체 스토리지", _storage, "docker compose up -d minio / MINIO_* 확인")
+
+    def _sec():
+        assert st.SECURITY_FILTER_API, "SECURITY_FILTER_API 미설정 (권장 — LLM 입출력 검사)"
+        from core.provider_apis import security_check
+        allowed, _, _ = security_check("점검 문장입니다", "in")
+        assert allowed, "점검 문장이 차단됨 — 필터 정책 확인"
+        return "(입출력 검사 활성)"
+
+    def _rerank():
+        assert st.RERANK_API, "RERANK_API 미설정 (선택 — 검색 품질 향상)"
+        return "(하이브리드 상위 후보 재정렬 활성)"
+
+    probe("보안 필터", _sec, "SECURITY_FILTER_API 설정 — 미설정 시 주민번호 스크럽만 적용됨")
+    probe("재랭킹", _rerank, "RERANK_API 설정 (선택)")
     print("결과:", "정상 — 파이프라인 실행 가능" if ok else "실패 항목 조치 후 재점검")
     return 0 if ok else 1
 
@@ -100,7 +120,8 @@ def main(argv=None) -> int:
 
     p1 = sub.add_parser("ingest", help="Flow① 스캔→VLM 전사→적재→정규화→RAG 색인")
     p1.add_argument("files", nargs="+", help="스캔 PDF 또는 기 OCR txt")
-    p1.add_argument("--transcriber", choices=["vlm", "tesseract"], default="vlm")
+    p1.add_argument("--transcriber", choices=["vlm", "parsing", "tesseract"], default="vlm",
+                    help="vlm=비전 LLM / parsing=플랫폼 Parsing API / tesseract=개발 대체")
     p1.add_argument("--dpi", type=int, default=260)
     p1.add_argument("--no-normalize", action="store_true", help="LLM 정규화 생략")
     p1.add_argument("--no-index", action="store_true", help="RAG 색인 생략")

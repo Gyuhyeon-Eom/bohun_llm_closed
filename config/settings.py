@@ -79,3 +79,24 @@ PRESIGNED_EXPIRES_S = int(os.getenv("PRESIGNED_EXPIRES_S", "600"))    # 열람 U
 # ORCH_BACKEND: "plain"(기본 — 현행 절차식 루프) | "langgraph"(그래프 오케스트레이션)
 #   langgraph 미반입 환경에서 "langgraph" 지정 시 자동으로 plain 폴백 (기동 실패 없음).
 ORCH_BACKEND = os.getenv("ORCH_BACKEND", "plain")
+
+# --- 플랫폼 API (모델·전처리·검색·보안 전부 API 호출 — 260730 요금표 반영) ---
+# 생성 모델 2종 라우팅: 심층 생성(의결서·판단)=MAIN, 고빈도·경량(챗봇·요약·OCR정규화)=LIGHT.
+#   LLM 모델 기능서 v0.1 배정표 그대로 — 프롬프트명 기준 자동 선택 (LLM_LIGHT_PROMPTS로 조정).
+LLM_MODEL_MAIN = os.getenv("LLM_MODEL_MAIN", os.getenv("FABRIX_MODEL", "gpt-oss-120b"))
+LLM_MODEL_LIGHT = os.getenv("LLM_MODEL_LIGHT", "") or LLM_MODEL_MAIN   # 예: gemma-4-31b
+LLM_LIGHT_PROMPTS = set(filter(None, os.getenv(
+    "LLM_LIGHT_PROMPTS",
+    "chatbot,query_rewrite,file_notes,similar_reason,ocr_normalize,ocr_verify,eval_judge"
+).split(",")))
+# 전처리·검색·보안 API — 엔드포인트 미설정 시 해당 기능은 로컬 구현/생략으로 폴백 (기동 불가 없음)
+PARSING_API = os.getenv("PARSING_API", "")            # 문서(PDF)→텍스트 (ingest --transcriber parsing)
+CHUNKING_API = os.getenv("CHUNKING_API", "")          # 청킹 (미설정=로컬 청커)
+EMBEDDING_API = os.getenv("EMBEDDING_API", "")        # 임베딩 (EMBED_BACKEND=api)
+RERANK_API = os.getenv("RERANK_API", "")              # 검색 재랭킹 (하이브리드 상위 후보 재정렬)
+SECURITY_FILTER_API = os.getenv("SECURITY_FILTER_API", "")  # LLM 입출력 보안 필터
+PLATFORM_API_KEY = os.getenv("PLATFORM_API_KEY", os.getenv("FABRIX_API_KEY", ""))
+API_TIMEOUT_S = int(os.getenv("API_TIMEOUT_S", "60"))
+# 보안 필터 적용 지점(in=프롬프트, out=생성문) / STRICT=1이면 필터 장애 시 호출 차단(fail-closed)
+SECURITY_FILTER_MODE = os.getenv("SECURITY_FILTER_MODE", "in,out")
+SECURITY_FILTER_STRICT = os.getenv("SECURITY_FILTER_STRICT", "0") == "1"

@@ -34,10 +34,11 @@ class LLMClient:
             # 원인을 명확히 드러내 조용한 오작동을 막는다.
             raise RuntimeError(
                 f"프롬프트 렌더링 실패({prompt_name}.txt): 누락/불일치 플레이스홀더 {e}") from e
+        prompt = _scrub_rrn(prompt)   # 최종 방어선: 외부 API 전송 직전 주민번호 스크럽
         last_err = None
         for attempt in range(LLM_MAX_RETRIES + 1):
             try:
-                return self._call(prompt)
+                return self._call(prompt, prompt_name)
             except LLMUnavailable:          # 연결 불가·모델 미설치 - 재시도 무의미, 즉시 전달
                 raise
             except LLMTransient as e:       # 5xx·타임아웃 등 - 재시도 가치 있음
@@ -47,19 +48,33 @@ class LLMClient:
             # 그 외 예외(4xx·스키마 불일치 등)는 재시도해도 동일하므로 그대로 전파
         raise RuntimeError(f"LLM 호출 실패({prompt_name}, {LLM_MAX_RETRIES + 1}회 시도): {last_err}")
 
-    def _call(self, prompt: str) -> str:
+    def _call(self, prompt: str, prompt_name: str = "") -> str:
         raise NotImplementedError
 
 
 class FabrixClient(LLMClient):
-    def _call(self, prompt: str) -> str:
+    """OpenAI 호환 Chat API 게이트웨이 — 플랫폼 무관(FabriX/vLLM/Ollama 공통 경로).
+
+    모델 라우팅(260730): 프롬프트명이 LLM_LIGHT_PROMPTS면 경량 모델(LLM_MODEL_LIGHT,
+    예 gemma-4-31b), 아니면 심층 모델(LLM_MODEL_MAIN, 예 gpt-oss-120b) — 기능서 v0.1 배정표.
+    보안(260730): SECURITY_FILTER_API 설정 시 입력/출력을 필터에 통과시킨다.
+    """
+
+    @staticmethod
+    def _model_for(prompt_name: str) -> str:
+        from config.settings import LLM_LIGHT_PROMPTS, LLM_MODEL_LIGHT, LLM_MODEL_MAIN
+        return LLM_MODEL_LIGHT if prompt_name in LLM_LIGHT_PROMPTS else LLM_MODEL_MAIN
+
+    def _call(self, prompt: str, prompt_name: str = "") -> str:
         import requests
+        prompt = _security_gate(prompt, "in")
+        model = self._model_for(prompt_name)
         # TODO(확인): OpenAI 호환 가정. 실규격에 맞춰 URL·헤더·페이로드 수정
         try:
             resp = requests.post(
                 FABRIX_ENDPOINT,
                 headers={"Authorization": f"Bearer {FABRIX_API_KEY}"},
-                json={"model": FABRIX_MODEL, "temperature": LLM_TEMPERATURE,
+                json={"model": model, "temperature": LLM_TEMPERATURE,
                       "messages": [{"role": "user", "content": prompt}]},
                 timeout=LLM_TIMEOUT_S)
         except requests.exceptions.ConnectionError as e:
@@ -73,7 +88,7 @@ class FabrixClient(LLMClient):
                 f"지속되면 LLM_TIMEOUT_S를 늘리세요.") from e
         if resp.status_code == 404:
             raise LLMUnavailable(
-                f"모델 '{FABRIX_MODEL}'을 찾을 수 없습니다 - 모델명(FABRIX_MODEL)과 배포 상태를 확인하세요.")
+                f"모델 '{model}'을 찾을 수 없습니다 - 모델명(LLM_MODEL_MAIN/LIGHT)과 배포 상태를 확인하세요.")
         if 400 <= resp.status_code < 500:   # 인증·잘못된 요청 - 재시도 무의미
             raise RuntimeError(f"{LLM_PROVIDER_LABEL} 요청 오류({resp.status_code}): {resp.text[:200]}")
         if resp.status_code >= 500:         # 서버측 일시 오류 - 재시도 가치 있음
@@ -81,9 +96,9 @@ class FabrixClient(LLMClient):
         data = resp.json()
         usage = data.get("usage", {})
         # 토큰 과금 추적 - TODO(확인): 운영에서는 로그 테이블/APM으로 전환
-        print(f"[llm] tokens in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')}")
+        print(f"[llm] model={model} tokens in={usage.get('prompt_tokens')} out={usage.get('completion_tokens')}")
         try:
-            return data["choices"][0]["message"]["content"]
+            return _security_gate(data["choices"][0]["message"]["content"], "out")
         except (KeyError, IndexError, TypeError) as e:
             # 응답 스키마가 가정(OpenAI 호환)과 다름 - 재시도해도 동일. FabriX 실규격 회신 시 여기 조정.
             raise RuntimeError(
@@ -108,7 +123,7 @@ class MockLLM(LLMClient):
         self._last_name = prompt_name
         return super().generate(prompt_name, **vars)
 
-    def _call(self, prompt: str) -> str:
+    def _call(self, prompt: str, prompt_name: str = "") -> str:
         return self.canned.get(self._last_name, f"[MOCK] {self._last_name} 응답 ({len(prompt)}자 수신)")
 
 
@@ -123,7 +138,7 @@ class RuleCorrectLLM(LLMClient):
     _DIGIT_REV = {"O": "0", "l": "1", "B": "8", "S": "5", "ㅡ": "-"}
     _NOISE = set("·¸'˙‚ˈ|")
 
-    def _call(self, prompt: str) -> str:
+    def _call(self, prompt: str, prompt_name: str = "") -> str:
         text = prompt.split("[OCR 텍스트]")[-1].strip()
         text = "".join(c for c in text if c not in self._NOISE).replace("\n", " ")
         chars = list(text)
@@ -136,3 +151,37 @@ class RuleCorrectLLM(LLMClient):
                 if prev.isdigit() or nxt.isdigit():   # 숫자 문맥에서만 (조문번호 복원)
                     chars[i] = self._DIGIT_REV[c]
         return " ".join("".join(chars).split())
+
+
+# ── 보안 계층 (260730) ────────────────────────────────────────────────────
+import re as _re
+
+_RRN = _re.compile(r"(\d{6})[-\s]?([1-4])\d{6}")
+
+
+def _scrub_rrn(text: str) -> str:
+    """주민번호 스크럽 — 저장 계층 마스킹이 뚫렸을 때의 최종 방어선.
+    외부 API로 나가는 모든 프롬프트에 적용(생년월일 6자리+성별코드는 보존)."""
+    return _RRN.sub(r"\1-\2******", text)
+
+
+def _security_gate(text: str, direction: str) -> str:
+    """Security Filter API 훅. 미설정=통과. 차단 판정 시 예외(사유 포함).
+    필터 장애: 기본 fail-open(스크럽은 이미 적용됨) + 경고 — SECURITY_FILTER_STRICT=1이면 차단."""
+    from config.settings import SECURITY_FILTER_API, SECURITY_FILTER_MODE, SECURITY_FILTER_STRICT
+    if not SECURITY_FILTER_API or direction not in SECURITY_FILTER_MODE:
+        return text
+    try:
+        from core.provider_apis import security_check
+        allowed, filtered, reason = security_check(text, direction)
+        if not allowed:
+            raise LLMUnavailable(f"보안 필터 차단({direction}): {reason or '정책 위반'}")
+        return filtered
+    except LLMUnavailable:
+        raise
+    except Exception as e:
+        if SECURITY_FILTER_STRICT:
+            raise LLMUnavailable(f"보안 필터 점검 불가(STRICT): {e}") from e
+        import sys
+        print(f"[security] 필터 장애 — 통과 처리(스크럽 적용됨): {e}", file=sys.stderr)
+        return text

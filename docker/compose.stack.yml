@@ -59,6 +59,15 @@ services:
       EMBED_BACKEND: ${EMBED_BACKEND:-bge}
       EMBED_MODEL: ${EMBED_MODEL:-/models/bge-m3}
       ORCH_BACKEND: ${ORCH_BACKEND:-langgraph}
+      LLM_MODEL_MAIN: ${LLM_MODEL_MAIN:-gpt-oss-120b}
+      LLM_MODEL_LIGHT: ${LLM_MODEL_LIGHT:-gemma-4-31b}
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      PARSING_API: ${PARSING_API:-}
+      CHUNKING_API: ${CHUNKING_API:-}
+      EMBEDDING_API: ${EMBEDDING_API:-}
+      RERANK_API: ${RERANK_API:-}
+      SECURITY_FILTER_API: ${SECURITY_FILTER_API:-}
+      SECURITY_FILTER_MODE: ${SECURITY_FILTER_MODE:-in,out}
     volumes:
       - ../out:/app/out          # 산출물(의결서·심사표·런 매니페스트)
       - /models:/models:ro       # 반입 임베딩 모델 (호스트 경로 조정)

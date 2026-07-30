@@ -68,10 +68,21 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
         log.info(f"── {p.name}")
 
         # ① 전사 (txt는 기 OCR 산출물 — 전사 생략)
-        if p.suffix.lower() == ".txt":
+        if transcriber == "parsing" and p.suffix.lower() != ".txt":
+            # Parsing API(260730): 문서→페이지 텍스트 — VLM 없이 플랫폼 파서 사용
+            with log.stage("전사(Parsing API)", file=p.name) as d:
+                from core.provider_apis import parse_document
+                texts = parse_document(str(p))
+                warns_all = []
+                d.update(pages=len(texts), chars=sum(len(t) for t in texts))
+            with log.stage("파싱·적재") as d:
+                sd_id, head, nblk = insert_scan_doc(texts, str(p), ocr_used=True)
+                d.update(sd_id=sd_id, person=_mask(head.get("person")), blocks=nblk,
+                         storage=_storage_backend())
+        elif p.suffix.lower() == ".txt":
             with log.stage("적재(기 OCR txt)", file=p.name) as d:
                 sd_id, person, disease, nblk = ingest_real_txt(str(p))
-                d.update(sd_id=sd_id, person=person, blocks=nblk)
+                d.update(sd_id=sd_id, person=_mask(person), blocks=nblk)
         else:
             with log.stage("전사", file=p.name, transcriber=transcriber) as d:
                 pages = list(render_pages(p, dpi))
@@ -90,7 +101,7 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
             with log.stage("파싱·적재") as d:
                 sd_id, head, nblk = insert_scan_doc(texts, str(p),
                                                     ocr_used=(transcriber != "none"))
-                d.update(sd_id=sd_id, person=head.get("person"), blocks=nblk,
+                d.update(sd_id=sd_id, person=_mask(head.get("person")), blocks=nblk,
                          storage=_storage_backend())
                 _flag_review_pages(sd_id, warns_all)
 
@@ -117,6 +128,11 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
 
     log.done(files=len(results))
     return {"run": str(log.path), "results": results}
+
+
+def _mask(name) -> str | None:
+    """런 매니페스트에 실명 미기록 (개인정보 정책 — 로그·산출 로그도 마스킹)."""
+    return None if not name else (name[0] + "O" + name[2:] if len(name) >= 3 else name[0] + "O")
 
 
 def _storage_backend() -> str:

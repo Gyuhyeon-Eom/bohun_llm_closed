@@ -19,6 +19,22 @@ def _or_tsquery(query: str) -> str:
     return " | ".join(dict.fromkeys(tokens)) or "___none___"
 
 
+def _api_rerank(query: str, hits: list[dict], top_k: int) -> list[dict]:
+    """Reranking API(260730) — 하이브리드 상위 후보를 관련도순 재정렬.
+    미설정·장애 시 RRF 순서 유지(검색이 재랭커 장애로 죽지 않게)."""
+    from config.settings import RERANK_API
+    if not RERANK_API or len(hits) <= 1:
+        return hits[:top_k]
+    try:
+        from core.provider_apis import rerank
+        order = rerank(query, [h["content"][:1500] for h in hits], top_k)
+        return [hits[i] for i in order if 0 <= i < len(hits)][:top_k] or hits[:top_k]
+    except Exception as e:
+        import sys
+        print(f"[rerank] 장애 — RRF 순서 유지: {e}", file=sys.stderr)
+        return hits[:top_k]
+
+
 def hybrid_search(query: str, query_vec: list[float],
                   top_k: int = TOP_K, doc_type: str | None = None,
                   use_dense: bool = True) -> list[dict]:
@@ -46,9 +62,12 @@ def hybrid_search(query: str, query_vec: list[float],
     FROM fused f JOIN chunks c USING (chunk_id) JOIN documents d USING (doc_id)
     ORDER BY f.score DESC
     """
+    from config.settings import RERANK_API
+    pool = top_k * 3 if RERANK_API else top_k   # 재랭커 사용 시 후보 풀 확장
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
-        cur.execute(sql, {"vec": query_vec, "q": _or_tsquery(query), "k": RRF_K, "top": top_k,
+        cur.execute(sql, {"vec": query_vec, "q": _or_tsquery(query), "k": RRF_K, "top": pool,
                           "dt": doc_type, "dense": use_dense,
                           "wd": RRF_DENSE_WEIGHT, "ws": RRF_SPARSE_WEIGHT})
         cols = [c.name for c in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        hits = [dict(zip(cols, row)) for row in cur.fetchall()]
+    return _api_rerank(query, hits, top_k)

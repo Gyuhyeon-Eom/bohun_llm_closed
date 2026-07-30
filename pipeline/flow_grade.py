@@ -46,7 +46,8 @@ def run(ga_ids: list[int] | None = None, out_dir: str = "out") -> dict:
             fname, tmp = grade_export.export_xlsx(ag["ga_id"], emb)
             dest = os.path.join(out_dir, fname)
             shutil.move(tmp, dest)
-            d.update(파일=dest, 대상자=ag.get("person"))
+            nm = ag.get("person") or ""
+            d.update(파일=dest, 대상자=(nm[0] + "O" + nm[2:]) if len(nm) >= 3 else nm)
             outs.append(dest)
 
     log.done(files=len(outs))
