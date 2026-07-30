@@ -30,7 +30,8 @@ VLM_RETRIES = 3
 
 def _transcribe_page(png: bytes, transcriber: str) -> tuple[str, list[str]]:
     """페이지 1장 전사 (+환각 기계검사 경고). 실패는 지수백오프 재시도 후 전파."""
-    from scripts.vlm_ocr import sanity, split_tiles, tess_transcribe, vlm_transcribe
+    from scripts.vlm_ocr import (clean_transcript, merge_tiles, sanity, split_tiles,
+                                 vlm_transcribe)
     last = None
     for attempt in range(VLM_RETRIES):
         try:
@@ -40,7 +41,8 @@ def _transcribe_page(png: bytes, transcriber: str) -> tuple[str, list[str]]:
                 from PIL import Image
                 return pytesseract.image_to_string(Image.open(io.BytesIO(png)),
                                                    lang="kor+eng", timeout=120), []
-            text = "\n".join(vlm_transcribe(t) for t in split_tiles(png, VLM_TILES))
+            text = clean_transcript(merge_tiles(
+                [vlm_transcribe(t) for t in split_tiles(png, VLM_TILES)]))
             return text, sanity(text)
         except Exception as e:
             last = e

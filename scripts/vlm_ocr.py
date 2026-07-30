@@ -13,7 +13,7 @@
 폐쇄망(FabriX/vLLM 등 OpenAI 호환 비전 서빙):
   VLM_ENDPOINT=<서빙주소>/v1/chat/completions VLM_MODEL=gemma-4-31b python3 scripts/vlm_ocr.py ...
 
-원칙: 전사 전용 — 원문에 없는 글자 생성 금지, 표는 '라벨: 값' 재구성, 판독불가는 ⟦판독불가⟧.
+원칙: 전사 전용 — 원문에 없는 글자 생성 금지, 표는 「항목명: 기재값」 병기, 판독불가는 ⟦판독불가⟧.
 산출: out_vlm/<pdf명>/page_NN.txt + full.txt(\f 구분 — ocr_ingest_scans.py 입력 호환) + report.json
 """
 import argparse
@@ -34,11 +34,14 @@ TIMEOUT = int(os.getenv("VLM_TIMEOUT", "600"))
 PROMPT = """너는 문서 전사(transcription) 담당자다. 첨부된 스캔 이미지의 글자를 그대로 옮겨 적어라.
 
 규칙:
-- 보이는 글자만 전사하라. 내용 창작·요약·번역·추측 금지.
-- 읽을 수 없는 부분은 ⟦판독불가⟧ 로 표기하라. 그럴듯한 값으로 채우지 마라.
-- 표는 각 행을 '라벨: 값' 형태의 줄로 재구성하라.
-- 도장·서명·로고는 [서명], [직인], [로고] 로만 표기하라.
-- 숫자·날짜·코드(예: M17.1, 7급5111호)는 한 글자도 바꾸지 마라. 애매하면 ⟦판독불가⟧.
+- 보이는 글자만, 읽는 순서대로 전사하라. 내용 창작·요약·번역·추측 금지.
+- 표는 한 행씩, 그 행의 항목명과 기재값을 같은 줄에 「항목명: 기재값」으로 붙여 써라.
+  (예: 성명: 홍길동) '라벨', '값' 같은 단어를 새로 만들어 붙이지 마라.
+- 기재값이 비어 있는 항목·빈 칸·빈 행은 아예 출력하지 마라.
+- 같은 줄이나 같은 구절을 두 번 이상 반복해 쓰지 마라. 반복되는 무늬·점선·괘선은 무시하라.
+- 읽을 수 없는 부분은 ⟦판독불가⟧ 로만 표기하라. 그럴듯한 값으로 채우지 마라.
+- 도장·서명·로고·사진은 [직인] [서명] [로고] [사진] 으로만 표기하라.
+- 숫자·날짜·코드(예: M17.1, 7급5111호, 주민번호)는 한 글자도 바꾸지 마라. 애매하면 ⟦판독불가⟧.
 - 설명이나 머리말 없이 전사 결과만 출력하라."""
 
 
@@ -127,6 +130,48 @@ def mock_transcribe(png: bytes) -> str:
     return f"[MOCK 전사 — 이미지 {len(png)}바이트. 실행 환경에 비전 모델이 없어 파이프라인만 검증]"
 
 
+_FILLER = re.compile(r"^[\s.\-_=~·•|:]*$")
+
+
+def clean_transcript(text: str) -> str:
+    """모델 반복 붕괴 제거: ①필러 줄(점·괘선만) 삭제 ②연속 동일 줄 2회로 축약
+    ③'라벨:'/'값:' 메타 접두 제거(구버전 프롬프트 호환)."""
+    out, prev, run = [], None, 0
+    for ln in text.splitlines():
+        t = ln.strip()
+        if _FILLER.match(t):
+            continue
+        t = re.sub(r"^(라벨|값)\s*[:：]\s*", "", t)
+        if not t:
+            continue
+        if t == prev:
+            run += 1
+            if run >= 2:      # 같은 줄 3번째부터 반복 붕괴로 간주
+                continue
+        else:
+            prev, run = t, 0
+        out.append(t)
+    return "\n".join(out)
+
+
+def merge_tiles(parts: list[str], probe: int = 6) -> str:
+    """타일 이어붙이기 — 겹침 구간(8%)이 양쪽 타일에 중복 전사되므로,
+    다음 타일 앞부분에서 이전 타일 끝과 겹치는 줄 구간을 찾아 잘라낸다."""
+    merged: list[str] = []
+    for part in parts:
+        lines = [l for l in part.splitlines() if l.strip()]
+        if merged and lines:
+            tail = merged[-probe:]
+            cut = 0
+            for k in range(min(probe, len(lines)), 0, -1):
+                if lines[:k] == tail[-k:]:
+                    cut = k
+                    break
+            lines = lines[cut:]
+        merged.extend(lines)
+    return "\n".join(merged)
+
+
 def sanity(text: str) -> list[str]:
     """VLM 환각의 흔한 형태를 기계 검사 — 통과 못 하면 담당자 검수 필수 표시."""
     warns = []
@@ -171,7 +216,9 @@ def main():
                     tt = time.time()
                     parts.append(fn["vlm"](t))
                     print(f"    p{no} tile{ti}/{args.tiles}: {round(time.time()-tt,1)}s")
-                text = "\n".join(parts)
+                text = clean_transcript(merge_tiles(parts))   # 겹침 중복 제거 + 반복 붕괴 정리
+            elif args.backend == "vlm":
+                text = clean_transcript(fn["vlm"](png))
             else:
                 text = fn[args.backend](png)
             entry = {"page": no, "chars": len(text), "sec": round(time.time() - t0, 1),
