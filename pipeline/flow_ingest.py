@@ -29,9 +29,10 @@ VLM_RETRIES = 3
 
 
 def _transcribe_page(png: bytes, transcriber: str) -> tuple[str, list[str]]:
-    """페이지 1장 전사 (+환각 기계검사 경고). 실패는 지수백오프 재시도 후 전파."""
-    from scripts.vlm_ocr import (clean_transcript, merge_tiles, sanity, split_tiles,
-                                 vlm_transcribe)
+    """페이지 1장 전사 (+환각 기계검사 경고). 실패는 지수백오프 재시도 후 전파.
+    transcriber: vlm(OpenAI 호환 비전 서빙) | fabrix(FabriX I2T §1) | tesseract"""
+    from scripts.vlm_ocr import (clean_transcript, fabrix_transcribe, merge_tiles,
+                                 sanity, split_tiles, vlm_transcribe)
     last = None
     for attempt in range(VLM_RETRIES):
         try:
@@ -41,8 +42,9 @@ def _transcribe_page(png: bytes, transcriber: str) -> tuple[str, list[str]]:
                 from PIL import Image
                 return pytesseract.image_to_string(Image.open(io.BytesIO(png)),
                                                    lang="kor+eng", timeout=120), []
+            one = fabrix_transcribe if transcriber == "fabrix" else vlm_transcribe
             text = clean_transcript(merge_tiles(
-                [vlm_transcribe(t) for t in split_tiles(png, VLM_TILES)]))
+                [one(t) for t in split_tiles(png, VLM_TILES)]))
             return text, sanity(text)
         except Exception as e:
             last = e
@@ -89,8 +91,8 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
             with log.stage("전사", file=p.name, transcriber=transcriber) as d:
                 pages = list(render_pages(p, dpi))
                 warns_all = []
-                # 병렬은 네트워크 I/O인 VLM만 — tesseract는 서브프로세스라 순차가 안전
-                workers = VLM_CONCURRENCY if transcriber == "vlm" else 1
+                # 병렬은 네트워크 I/O인 VLM/FabriX만 — tesseract는 서브프로세스라 순차가 안전
+                workers = VLM_CONCURRENCY if transcriber in ("vlm", "fabrix") else 1
                 with ThreadPoolExecutor(max_workers=workers) as ex:
                     outs = list(ex.map(lambda pg: _transcribe_page(pg[1], transcriber), pages))
                 texts = [t for t, _ in outs]

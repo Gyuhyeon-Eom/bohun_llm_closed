@@ -81,11 +81,13 @@ class LLMClient:
 
 
 class FabrixClient(LLMClient):
-    """OpenAI 호환 Chat API 게이트웨이 — 플랫폼 무관(FabriX/vLLM/Ollama 공통 경로).
+    """LLM Serving 게이트웨이 — FabriX OpenAPI(§5)·vLLM·Ollama 공통 OpenAI 호환 경로.
 
     모델 라우팅(260730): 프롬프트명이 LLM_LIGHT_PROMPTS면 경량 모델(LLM_MODEL_LIGHT,
     예 gemma-4-31b), 아니면 심층 모델(LLM_MODEL_MAIN, 예 gpt-oss-120b) — 기능서 v0.1 배정표.
-    보안(260730): SECURITY_FILTER_API 설정 시 입력/출력을 필터에 통과시킨다.
+    FabriX 실규격(매뉴얼 §5): FABRIX_CLIENT_KEY 설정 시 인증은 x-fabrix-client/x-openapi-token
+    헤더, 모델 선택은 x-llm-model-id 헤더(UUID), body model은 "/mnt/models" 고정.
+    LLM Serving은 서비스 필터가 적용되지 않으므로(§5.1) Security Filter(§3)를 병행한다.
     """
 
     @staticmethod
@@ -93,16 +95,34 @@ class FabrixClient(LLMClient):
         from config.settings import LLM_LIGHT_PROMPTS, LLM_MODEL_LIGHT, LLM_MODEL_MAIN
         return LLM_MODEL_LIGHT if prompt_name in LLM_LIGHT_PROMPTS else LLM_MODEL_MAIN
 
+    @staticmethod
+    def _model_id_for(prompt_name: str) -> str:
+        """x-llm-model-id용 modelId(UUID) — 미등록 시 모델명으로 폴백(서빙이 이름 허용 시)."""
+        from config.settings import (FABRIX_MODEL_ID_LIGHT, FABRIX_MODEL_ID_MAIN,
+                                     LLM_LIGHT_PROMPTS)
+        light = prompt_name in LLM_LIGHT_PROMPTS
+        return ((FABRIX_MODEL_ID_LIGHT if light else FABRIX_MODEL_ID_MAIN)
+                or FabrixClient._model_for(prompt_name))
+
+    def _request_parts(self, prompt_name: str) -> tuple[dict, str]:
+        """(헤더, body model) — FabriX 실규격/개발 서빙(Bearer) 겸용."""
+        from config.settings import FABRIX_CLIENT_KEY, FABRIX_SERVING_MODEL
+        from core.provider_apis import fabrix_headers
+        if FABRIX_CLIENT_KEY:
+            return (fabrix_headers({"x-llm-model-id": self._model_id_for(prompt_name)}),
+                    FABRIX_SERVING_MODEL)
+        return ({"Authorization": f"Bearer {FABRIX_API_KEY}"}, self._model_for(prompt_name))
+
     def _call(self, prompt: str, prompt_name: str = "") -> str:
         import requests
         prompt = _security_gate(prompt, "in")
-        model = self._model_for(prompt_name)
-        # TODO(확인): OpenAI 호환 가정. 실규격에 맞춰 URL·헤더·페이로드 수정
+        model = self._model_for(prompt_name)          # 로깅·캐시 키용 모델명
+        headers, body_model = self._request_parts(prompt_name)
         try:
             resp = requests.post(
                 FABRIX_ENDPOINT,
-                headers={"Authorization": f"Bearer {FABRIX_API_KEY}"},
-                json={"model": model, "temperature": LLM_TEMPERATURE,
+                headers=headers,
+                json={"model": body_model, "temperature": LLM_TEMPERATURE,
                       "messages": [{"role": "user", "content": prompt}]},
                 timeout=LLM_TIMEOUT_S)
         except requests.exceptions.ConnectionError as e:
@@ -219,14 +239,15 @@ def _fabrix_call_json(self, prompt: str, prompt_name: str, schema: dict) -> dict
     import requests
     prompt = _security_gate(prompt, "in")
     model = self._model_for(prompt_name)
-    body = {"model": model, "temperature": LLM_TEMPERATURE,
+    headers, body_model = self._request_parts(prompt_name)
+    # response_format은 매뉴얼 §5 미문서 — vLLM 계열이면 통과, 미지원(400)이면 아래 파싱 폴백
+    body = {"model": body_model, "temperature": LLM_TEMPERATURE,
             "messages": [{"role": "user", "content": prompt}],
             "response_format": {"type": "json_schema",
                                 "json_schema": {"name": prompt_name or "out",
                                                 "schema": schema, "strict": True}}}
     try:
-        resp = requests.post(FABRIX_ENDPOINT,
-                             headers={"Authorization": f"Bearer {FABRIX_API_KEY}"},
+        resp = requests.post(FABRIX_ENDPOINT, headers=headers,
                              json=body, timeout=LLM_TIMEOUT_S)
     except requests.exceptions.ConnectionError as e:
         raise LLMUnavailable(f"{LLM_PROVIDER_LABEL} 서버 연결 불가") from e

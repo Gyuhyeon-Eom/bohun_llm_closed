@@ -66,10 +66,13 @@ def check() -> int:
 
     def _llm():
         assert st.LLM_BACKEND == "openai", "LLM_BACKEND=mock — FABRIX_* 설정 필요"
-        r = rq.get(st.FABRIX_ENDPOINT.rsplit("/chat/", 1)[0].rstrip("/") + "/models",
-                   headers={"Authorization": f"Bearer {st.FABRIX_API_KEY}"}, timeout=5)
+        from core.provider_apis import fabrix_headers
+        url = (f"{st.FABRIX_BASE_URL}/openapi/llm/v1/models" if st.FABRIX_CLIENT_KEY
+               else st.FABRIX_ENDPOINT.rsplit("/chat/", 1)[0].rstrip("/") + "/models")
+        r = rq.get(url, headers=fabrix_headers(), timeout=5)
         r.raise_for_status()
-        return f"({st.FABRIX_MODEL})"
+        mode = "FabriX 실규격" if st.FABRIX_CLIENT_KEY else "Bearer(개발)"
+        return f"({mode}, 심층={st.LLM_MODEL_MAIN}/경량={st.LLM_MODEL_LIGHT})"
 
     def _vlm():
         ep = os.getenv("VLM_ENDPOINT")
@@ -120,8 +123,10 @@ def main(argv=None) -> int:
 
     p1 = sub.add_parser("ingest", help="Flow① 스캔→VLM 전사→적재→정규화→RAG 색인")
     p1.add_argument("files", nargs="+", help="스캔 PDF 또는 기 OCR txt")
-    p1.add_argument("--transcriber", choices=["vlm", "parsing", "tesseract"], default="vlm",
-                    help="vlm=비전 LLM / parsing=플랫폼 Parsing API / tesseract=개발 대체")
+    p1.add_argument("--transcriber", choices=["vlm", "fabrix", "parsing", "tesseract"],
+                    default="vlm",
+                    help="vlm=OpenAI 호환 비전 서빙 / fabrix=FabriX I2T(messages-with-models)"
+                         " / parsing=FabriX Parsing API / tesseract=개발 대체")
     p1.add_argument("--dpi", type=int, default=260)
     p1.add_argument("--no-normalize", action="store_true", help="LLM 정규화 생략")
     p1.add_argument("--no-index", action="store_true", help="RAG 색인 생략")

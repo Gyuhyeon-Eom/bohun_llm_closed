@@ -89,14 +89,41 @@ LLM_LIGHT_PROMPTS = set(filter(None, os.getenv(
     "LLM_LIGHT_PROMPTS",
     "chatbot,query_rewrite,file_notes,similar_reason,ocr_normalize,ocr_verify,eval_judge"
 ).split(",")))
-# 전처리·검색·보안 API — 엔드포인트 미설정 시 해당 기능은 로컬 구현/생략으로 폴백 (기동 불가 없음)
-PARSING_API = os.getenv("PARSING_API", "")            # 문서(PDF)→텍스트 (ingest --transcriber parsing)
-CHUNKING_API = os.getenv("CHUNKING_API", "")          # 청킹 (미설정=로컬 청커)
-EMBEDDING_API = os.getenv("EMBEDDING_API", "")        # 임베딩 (EMBED_BACKEND=api)
-RERANK_API = os.getenv("RERANK_API", "")              # 검색 재랭킹 (하이브리드 상위 후보 재정렬)
-SECURITY_FILTER_API = os.getenv("SECURITY_FILTER_API", "")  # LLM 입출력 보안 필터
+# --- FabriX OpenAPI 실규격 (docs/vendor/FabriX OpenAPI 매뉴얼.pdf — 260730 확정) ---
+# 인증: 모든 OpenAPI 공통 헤더 — x-fabrix-client(클라이언트 키) + x-openapi-token(Bearer 패스키).
+#   FABRIX_CLIENT_KEY 설정 = 실규격 모드. 미설정 = 기존 Authorization Bearer (개발용 Ollama/vLLM).
+FABRIX_CLIENT_KEY = os.getenv("FABRIX_CLIENT_KEY", "")     # x-fabrix-client
+FABRIX_PASS_KEY = os.getenv("FABRIX_PASS_KEY", "")         # x-openapi-token (Bearer 프리픽스 자동 부여)
+FABRIX_USER_EMAIL = os.getenv("FABRIX_USER_EMAIL", "")     # x-generative-ai-user-email (선택)
+FABRIX_BASE_URL = os.getenv("FABRIX_BASE_URL", "").rstrip("/")  # OpenAPI 신청 시 발급 URL(…/openapi/* 뿌리)
+# LLM Serving(§5): OpenAI 호환 /chat/completions — 모델은 x-llm-model-id 헤더(UUID)로 선택,
+#   body의 model은 "/mnt/models" 고정. 서비스 필터가 적용되지 않으므로 Security Filter 병행 필수.
+FABRIX_MODEL_ID_MAIN = os.getenv("FABRIX_MODEL_ID_MAIN", "")    # gpt-oss-120b modelId (GET /openapi/llm/v1/models)
+FABRIX_MODEL_ID_LIGHT = os.getenv("FABRIX_MODEL_ID_LIGHT", "")  # gemma-4-31b modelId
+FABRIX_SERVING_MODEL = os.getenv("FABRIX_SERVING_MODEL", "/mnt/models")
+# I2T 이미지 분석(§1 messages-with-models — VLM OCR 경로): TEXT+I2T 모델 UUID 2종, 파일 1개/호출
+FABRIX_TEXT_MODEL_ID = os.getenv("FABRIX_TEXT_MODEL_ID", "")
+FABRIX_I2T_MODEL_ID = os.getenv("FABRIX_I2T_MODEL_ID", "")
+
+# 전처리·검색·보안 API — 미설정 시 FABRIX_BASE_URL에서 실규격 경로 자동 유도, 그것도 없으면
+#   해당 기능은 로컬 구현/생략으로 폴백 (기동 불가 없음)
+PARSING_API = os.getenv("PARSING_API", "") or (
+    f"{FABRIX_BASE_URL}/openapi/parsing/v1/documents/parsing-jobs/files" if FABRIX_BASE_URL else "")
+CHUNKING_API = os.getenv("CHUNKING_API", "")          # FabriX Chunking(§12)은 스토리지 사전등록 기반 — 로컬 청커 기본
+EMBEDDING_API = os.getenv("EMBEDDING_API", "")        # FabriX엔 텍스트→벡터 API 없음 — bge-m3 로컬 확정(별도 서빙 시만)
+RERANK_API = os.getenv("RERANK_API", "")              # FabriX엔 rerank API 없음 — cross-encoder 서빙 확보 시만
+SECURITY_FILTER_API = os.getenv("SECURITY_FILTER_API", "") or (
+    f"{FABRIX_BASE_URL}/openapi/filter/v1/check" if FABRIX_BASE_URL else "")
+KNOWLEDGE_ASSET_ID = os.getenv("KNOWLEDGE_ASSET_ID", "")   # Knowledge 자산 검색(§7) — 자산 등록 시만
 PLATFORM_API_KEY = os.getenv("PLATFORM_API_KEY", os.getenv("FABRIX_API_KEY", ""))
 API_TIMEOUT_S = int(os.getenv("API_TIMEOUT_S", "60"))
+PARSING_TIMEOUT_S = int(os.getenv("PARSING_TIMEOUT_S", "600"))   # 파싱 잡 폴링 최대 대기
+PARSING_POLL_S = float(os.getenv("PARSING_POLL_S", "3"))
+SECURITY_FILTER_USER_IP = os.getenv("SECURITY_FILTER_USER_IP", "127.0.0.1")  # 필터 이력용(§3 필수 필드)
+# LLM 엔드포인트 자동 유도 — 매뉴얼 §5는 "발급 URL + /chat/completions"만 확정. 발급 URL이
+#   /openapi/llm/v1 형태가 아니면 FABRIX_ENDPOINT를 직접 지정해 덮어쓴다.
+if FABRIX_CLIENT_KEY and FABRIX_BASE_URL and not os.getenv("FABRIX_ENDPOINT"):
+    FABRIX_ENDPOINT = f"{FABRIX_BASE_URL}/openapi/llm/v1/chat/completions"
 # 보안 필터 적용 지점(in=프롬프트, out=생성문) / STRICT=1이면 필터 장애 시 호출 차단(fail-closed)
 SECURITY_FILTER_MODE = os.getenv("SECURITY_FILTER_MODE", "in,out")
 SECURITY_FILTER_STRICT = os.getenv("SECURITY_FILTER_STRICT", "0") == "1"

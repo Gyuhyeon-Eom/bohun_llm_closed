@@ -31,6 +31,15 @@ VLM_MODEL = os.getenv("VLM_MODEL", "gemma3:12b")
 VLM_API_KEY = os.getenv("VLM_API_KEY", "")
 TIMEOUT = int(os.getenv("VLM_TIMEOUT", "600"))
 
+# FabriX I2T(이미지 분석 — 매뉴얼 §1 messages-with-models): 파일 1개/호출 제한이라
+# 타일 1장씩 보내는 우리 방식과 부합. --backend fabrix 로 사용.
+FABRIX_BASE_URL = os.getenv("FABRIX_BASE_URL", "").rstrip("/")
+FABRIX_CLIENT_KEY = os.getenv("FABRIX_CLIENT_KEY", "")
+FABRIX_PASS_KEY = os.getenv("FABRIX_PASS_KEY", "")
+FABRIX_USER_EMAIL = os.getenv("FABRIX_USER_EMAIL", "")
+FABRIX_TEXT_MODEL_ID = os.getenv("FABRIX_TEXT_MODEL_ID", "")
+FABRIX_I2T_MODEL_ID = os.getenv("FABRIX_I2T_MODEL_ID", "")
+
 PROMPT = """너는 문서 전사(transcription) 담당자다. 첨부된 스캔 이미지의 글자를 그대로 옮겨 적어라.
 
 규칙:
@@ -119,6 +128,33 @@ def vlm_transcribe(png: bytes) -> str:
     return r.json()["choices"][0]["message"]["content"].strip()
 
 
+def fabrix_transcribe(png: bytes) -> str:
+    """FabriX I2T 전사(§1 messages-with-models) — multipart, isStream=false.
+    modelIds=[TEXT, I2T] 2종 필수, 응답은 camelCase JSON의 content."""
+    import requests
+    for k, v in (("FABRIX_BASE_URL", FABRIX_BASE_URL), ("FABRIX_CLIENT_KEY", FABRIX_CLIENT_KEY),
+                 ("FABRIX_TEXT_MODEL_ID", FABRIX_TEXT_MODEL_ID),
+                 ("FABRIX_I2T_MODEL_ID", FABRIX_I2T_MODEL_ID)):
+        if not v:
+            raise RuntimeError(f"{k} 미설정 — FabriX I2T 백엔드는 환경변수 4종+패스키가 필요합니다")
+    token = FABRIX_PASS_KEY if FABRIX_PASS_KEY.startswith("Bearer ") else f"Bearer {FABRIX_PASS_KEY}"
+    headers = {"x-fabrix-client": FABRIX_CLIENT_KEY, "x-openapi-token": token}
+    if FABRIX_USER_EMAIL:
+        headers["x-generative-ai-user-email"] = FABRIX_USER_EMAIL
+    form = {"modelIds": [FABRIX_TEXT_MODEL_ID, FABRIX_I2T_MODEL_ID],
+            "contents": [PROMPT], "isStream": "false",
+            "llmConfig": json.dumps({"max_new_tokens": 4096, "temperature": 0.1})}
+    r = requests.post(f"{FABRIX_BASE_URL}/openapi/chat/v1/messages-with-models",
+                      headers=headers, data=form,
+                      files={"files": ("tile.png", png, "image/png")}, timeout=TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("status") not in (None, "SUCCESS"):
+        reason = (data.get("filterBlockReason") or {}).get("ko") or data.get("responseCode")
+        raise RuntimeError(f"FabriX 응답 비정상({data.get('status')}): {reason}")
+    return (data.get("content") or "").strip()
+
+
 def tess_transcribe(png: bytes) -> str:
     import io
     import pytesseract
@@ -192,7 +228,8 @@ def main():
     ap.add_argument("-o", "--out", default="out_vlm")
     ap.add_argument("--dpi", type=int, default=260)
     ap.add_argument("--tiles", type=int, default=3, help="페이지 세로 분할 수 (1=통짜 — 전장 A4는 글자 뭉개짐)")
-    ap.add_argument("--backend", choices=["vlm", "tesseract", "mock"], default="vlm")
+    ap.add_argument("--backend", choices=["vlm", "fabrix", "tesseract", "mock"], default="vlm",
+                    help="vlm=OpenAI 호환 비전 서빙 / fabrix=FabriX I2T(messages-with-models)")
     ap.add_argument("--compare", action="store_true", help="VLM과 tesseract를 모두 돌려 페이지별 비교")
     ap.add_argument("--selftest", action="store_true", help="이미지가 모델에 전달되는지 프로브 문구로 확인")
     args = ap.parse_args()
@@ -202,7 +239,8 @@ def main():
     if not args.pdfs:
         ap.error("PDF 경로를 지정하거나 --selftest 를 사용하세요")
 
-    fn = {"vlm": vlm_transcribe, "tesseract": tess_transcribe, "mock": mock_transcribe}
+    fn = {"vlm": vlm_transcribe, "fabrix": fabrix_transcribe,
+          "tesseract": tess_transcribe, "mock": mock_transcribe}
     for pdf_path in args.pdfs:
         pdf = Path(pdf_path)
         dest = Path(args.out) / pdf.stem
@@ -210,20 +248,20 @@ def main():
         pages, report = [], {"file": pdf.name, "backend": args.backend, "model": VLM_MODEL, "pages": []}
         for no, png in render_pages(pdf, args.dpi):
             t0 = time.time()
-            if args.backend == "vlm" and args.tiles > 1:
+            if args.backend in ("vlm", "fabrix") and args.tiles > 1:
                 parts = []
                 for ti, t in enumerate(split_tiles(png, args.tiles), 1):
                     tt = time.time()
-                    parts.append(fn["vlm"](t))
+                    parts.append(fn[args.backend](t))
                     print(f"    p{no} tile{ti}/{args.tiles}: {round(time.time()-tt,1)}s")
                 text = clean_transcript(merge_tiles(parts))   # 겹침 중복 제거 + 반복 붕괴 정리
-            elif args.backend == "vlm":
-                text = clean_transcript(fn["vlm"](png))
+            elif args.backend in ("vlm", "fabrix"):
+                text = clean_transcript(fn[args.backend](png))
             else:
                 text = fn[args.backend](png)
             entry = {"page": no, "chars": len(text), "sec": round(time.time() - t0, 1),
-                     "warnings": sanity(text) if args.backend == "vlm" else []}
-            if args.compare and args.backend == "vlm":
+                     "warnings": sanity(text) if args.backend in ("vlm", "fabrix") else []}
+            if args.compare and args.backend in ("vlm", "fabrix"):
                 base = tess_transcribe(png)
                 entry["tesseract_chars"] = len(base)
                 entry["similarity"] = round(difflib.SequenceMatcher(None, text, base).ratio(), 3)
