@@ -17,7 +17,7 @@ from pathlib import Path
 # 스택 구성 이미지 (compose와 일치 — 갱신 시 여기와 docker-compose.yml 동시 수정)
 IMAGES = [
     "pgvector/pgvector:pg16",
-    "minio/minio:RELEASE.2026-06-13T11-33-47Z",
+    "minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "python:3.12-slim",            # api 이미지의 베이스 (폐쇄망 빌드용)
 ]
 PART = 90 * 1024 * 1024
