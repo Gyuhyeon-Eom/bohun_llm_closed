@@ -44,9 +44,11 @@ PROMPT = """너는 문서 전사(transcription) 담당자다. 첨부된 스캔 �
 
 규칙:
 - 보이는 글자만, 읽는 순서대로 전사하라. 내용 창작·요약·번역·추측 금지.
+- 페이지 최상단의 기관명·문서 제목부터 빠뜨리지 말고 전사하라 (로고 옆 글자 포함).
 - 표는 한 행씩, 그 행의 항목명과 기재값을 같은 줄에 「항목명: 기재값」으로 붙여 써라.
   (예: 성명: 홍길동) '라벨', '값' 같은 단어를 새로 만들어 붙이지 마라.
 - 기재값이 비어 있는 항목·빈 칸·빈 행은 아예 출력하지 마라.
+  빈 칸은 ⟦판독불가⟧가 아니다 — 글자가 없으면 그 항목 자체를 건너뛰어라.
 - 같은 줄이나 같은 구절을 두 번 이상 반복해 쓰지 마라. 반복되는 무늬·점선·괘선은 무시하라.
 - 읽을 수 없는 부분은 ⟦판독불가⟧ 로만 표기하라. 그럴듯한 값으로 채우지 마라.
 - 도장·서명·로고·사진은 [직인] [서명] [로고] [사진] 으로만 표기하라.
@@ -190,17 +192,25 @@ def clean_transcript(text: str) -> str:
     return "\n".join(out)
 
 
+def _norm_line(l: str) -> str:
+    """중복 판정용 정규화 — 공백 차이('( 의뢰일:' vs '(의뢰일:')로 같은 줄을
+    다른 줄로 오판해 중복이 살아남던 실측 사례(04판독지 p3, 숫자CER 6배) 대응."""
+    return re.sub(r"\s+", "", l)
+
+
 def merge_tiles(parts: list[str], probe: int = 6) -> str:
     """타일 이어붙이기 — 겹침 구간(8%)이 양쪽 타일에 중복 전사되므로,
-    다음 타일 앞부분에서 이전 타일 끝과 겹치는 줄 구간을 찾아 잘라낸다."""
+    다음 타일 앞부분에서 이전 타일 끝과 겹치는 줄 구간을 찾아 잘라낸다.
+    비교는 공백 정규화 기준(전사 표기 흔들림 허용)."""
     merged: list[str] = []
     for part in parts:
         lines = [l for l in part.splitlines() if l.strip()]
         if merged and lines:
-            tail = merged[-probe:]
+            tail = [_norm_line(l) for l in merged[-probe:]]
+            head = [_norm_line(l) for l in lines[:probe]]
             cut = 0
             for k in range(min(probe, len(lines)), 0, -1):
-                if lines[:k] == tail[-k:]:
+                if head[:k] == tail[-k:]:
                     cut = k
                     break
             lines = lines[cut:]
@@ -215,11 +225,20 @@ def sanity(text: str) -> list[str]:
     for l in set(lines):
         if len(l) > 3 and lines.count(l) >= 5:
             warns.append(f"반복 루프 의심: '{l[:30]}' ×{lines.count(l)}")
+    # 타일 이음새 중복: 근접(3줄 이내) 동일 줄(공백 무시) — 문서상 정당한 반복(섹션 재등장)은
+    # 통상 멀리 떨어져 있어 오탐이 없다. 숫자 줄 중복은 숫자CER을 크게 부풀림(실측 p3).
+    normed = [_norm_line(l) for l in lines]
+    for i, n in enumerate(normed):
+        if len(n) >= 8:
+            for j in range(i + 1, min(i + 4, len(normed))):
+                if n == normed[j]:
+                    warns.append(f"근접 중복 줄(타일 이음새 의심): '{lines[i][:30]}'")
+                    break
     if len(text) < 20:
         warns.append("전사량 과소 — 페이지 누락 의심")
     if re.search(r"(요약|정리하면|번역)\s*[:：]", text):
         warns.append("전사 외 생성(요약/번역) 의심")
-    return warns
+    return list(dict.fromkeys(warns))
 
 
 def main():
