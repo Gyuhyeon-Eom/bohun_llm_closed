@@ -79,3 +79,22 @@ def test_case_detail_and_save_all(monkeypatch):
     assert ok["ok"] is True and ok["saved"] == ["s1"]
     bad = c.post("/case-draft/1/save-all", json={"sections": {"sx": "x"}}).json()
     assert bad["ok"] is False and "error" in bad
+
+
+@pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
+def test_right_panel_endpoints(monkeypatch):
+    """우측 영역 — 안건 유사사례·작성이력·챗봇 안건 컨텍스트 (명세 v0.5)."""
+    monkeypatch.setenv("EMBED_BACKEND", "hash")
+    from fastapi.testclient import TestClient
+    from api.main import app
+    c = TestClient(app)
+    sim = c.get("/cases/1/similar", params={"n": 3}).json()
+    assert isinstance(sim, list) and len(sim) <= 3
+    if sim:
+        assert {"case_sn", "similarity", "summary", "reason"} <= set(sim[0])
+    hist = c.get("/cases/1/history").json()
+    assert isinstance(hist, list)
+    if hist:
+        assert {"at", "area", "event", "actor"} <= set(hist[0])
+        assert hist[0]["actor"] in ("AI", "담당자")
+    assert "error" in c.get("/cases/999999/similar").json()

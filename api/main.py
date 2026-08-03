@@ -92,6 +92,9 @@ class Question(BaseModel):
     only_uploaded: bool = False   # True면 UI로 넣은 문서만 검색
     history: list[dict] = []      # [{"role":"user"|"ai","text":...}] 최근 대화 (챗봇용)
     session_id: int | None = Field(None, validation_alias=AliasChoices("session_id", "chbt_sshn_sn"))
+    # 우측 영역 패널 컨텍스트 — "현재 안건: 2026-0101 …" 상태로 질의 (안건 요약을 문맥 주입)
+    app_id: int | None = Field(None, validation_alias=AliasChoices("app_id", "aply_log_sn"))
+    ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
     persist: bool = True          # False면 기록 저장 안 함 (AI 검토 패널 질의 등 일회성)
 
 
@@ -181,6 +184,37 @@ def api_load():
     return {"active": _active_chats}
 
 
+def _case_context(app_id: int | None, ga_id: int | None) -> str | None:
+    """우측 영역 '현재 안건' 문맥 — 챗봇 히스토리 선두에 주입할 안건 요약."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    try:
+        with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+            if app_id:
+                cur.execute("SELECT recv_no, applicant, duty_type, review_content"
+                            " FROM application WHERE app_id=%s", (app_id,))
+                a = cur.fetchone()
+                if not a:
+                    return None
+                cur.execute("SELECT name, body_side, kcd_code FROM disability"
+                            " WHERE app_id=%s", (app_id,))
+                dis = ", ".join(f"{d['name']}({d['body_side'] or '-'}·{d['kcd_code']})"
+                                for d in cur.fetchall())
+                return (f"[현재 안건] {a['recv_no']} {a['applicant']}({a['duty_type']})"
+                        f" · {a['review_content']} · 신청상이: {dis}")
+            if ga_id:
+                cur.execute("SELECT agenda_no, person, exam_kind FROM grade_agenda"
+                            " WHERE ga_id=%s", (ga_id,))
+                g = cur.fetchone()
+                if g:
+                    return (f"[현재 안건] 상이등급 {g['agenda_no']} {g['person']}"
+                            f" · {g.get('exam_kind') or ''}")
+    except Exception:
+        pass                           # 컨텍스트는 부가 정보 — 실패해도 질의는 진행
+    return None
+
+
 @app.post("/chatbot")                 # 기능② (성공 왕복은 세션 기록으로 저장)
 def api_chatbot(q: Question):
     global _active_chats
@@ -188,6 +222,9 @@ def api_chatbot(q: Question):
     with _load_lock:
         _active_chats += 1
     try:
+        ctx = _case_context(q.app_id, q.ga_id)
+        if ctx:
+            q.history = [{"role": "user", "text": ctx}] + (q.history or [])
         try:
             r = chatbot.answer(q.question, _llm, _emb,
                                doc_type="ui_upload" if q.only_uploaded else None,
@@ -488,6 +525,70 @@ def api_case_file_reorder(app_id: int, req: ReorderReq):
 def api_case_file_ai_notes(app_id: int):
     from services import case_file
     return case_file.ai_notes(app_id, _llm)
+
+
+@app.get("/cases/{app_id}/similar")           # 안건 기준 유사사례 (우측 영역 — 유사사례 검색 탭)
+def api_case_similar(app_id: int, n: int = 5):
+    """안건 요약 임베딩으로 과거사례 검색 — 유사도(score)·사유(reason) 포함."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    from services.similar_case import find_similar
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT review_content, apply_story FROM application WHERE app_id=%s",
+                    (app_id,))
+        a = cur.fetchone()
+        if not a:
+            return {"error": "안건 없음"}
+        cur.execute("SELECT name, body_side, kcd_code FROM disability WHERE app_id=%s", (app_id,))
+        dis = cur.fetchall()
+        cur.execute("SELECT case_id, reason FROM sim_reason WHERE app_id=%s", (app_id,))
+        reasons = {r["case_id"]: r["reason"] for r in cur.fetchall()}
+    summary = (f"{a['review_content']} · "
+               + ", ".join(f"{d['name']}({d['body_side'] or '-'})" for d in dis)
+               + f" · {(a['apply_story'] or '')[:200]}")
+    kcds = [d["kcd_code"] for d in dis if d["kcd_code"]]
+    rows = find_similar(_emb.encode([summary])[0], kcd_codes=kcds or None, n=n)
+    for r in rows:
+        r["reason"] = reasons.get(r["case_id"])
+    return rows
+
+
+@app.get("/cases/{app_id}/history")           # 통합 작성이력 (우측 영역 — 작성이력 탭)
+def api_case_history(app_id: int, limit: int = 50):
+    """요건 의결서·상세 수정·확정·연계 상이등급 이벤트를 시간 역순 타임라인으로 통합."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    events = []
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT section, source, updated_at FROM case_draft"
+                    " WHERE app_id=%s AND content IS NOT NULL AND content<>''", (app_id,))
+        titles = {"s1": "요건사실", "s2": "경위", "s3": "의학적 소견"}
+        for r in cur.fetchall():
+            events.append({"at": r["updated_at"], "area": "요건심사 심의 의결서",
+                           "event": f"'{titles.get(r['section'], r['section'])}' 란 "
+                                    + ("초안 생성" if r["source"] == "llm" else "수정 저장"),
+                           "actor": "AI" if r["source"] == "llm" else "담당자"})
+        cur.execute("SELECT field, editor, created_at FROM field_edit WHERE app_id=%s", (app_id,))
+        for r in cur.fetchall():
+            events.append({"at": r["created_at"], "area": "요건심사 상세",
+                           "event": f"'{r['field']}' 항목 수정", "actor": r["editor"]})
+        cur.execute("SELECT dis_id, status, decided_at FROM conclusion"
+                    " WHERE app_id=%s AND decided_at IS NOT NULL", (app_id,))
+        for r in cur.fetchall():
+            events.append({"at": r["decided_at"], "area": "요건심사 심의 의결서",
+                           "event": f"종합판단 {r['status']}", "actor": "담당자",
+                           "dis_id": r["dis_id"]})
+        cur.execute("""SELECT gl.step, gl.event, gl.actor, gl.created_at
+                       FROM grade_log gl JOIN scan_doc sd ON sd.ga_id = gl.ga_id
+                       WHERE sd.app_id=%s""", (app_id,))
+        for r in cur.fetchall():
+            events.append({"at": r["created_at"], "area": "상이등급심사",
+                           "event": f"[{r['step']}] {r['event']}", "actor": r["actor"]})
+    events = [e for e in events if e["at"] is not None]
+    events.sort(key=lambda e: e["at"], reverse=True)
+    return events[:limit]
 
 
 @app.post("/cases/{app_id}/similar-reasons")  # 유사사례 'AI 왜 유사한지' 요약 생성·캐시
