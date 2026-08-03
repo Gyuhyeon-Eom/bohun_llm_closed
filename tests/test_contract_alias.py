@@ -60,3 +60,22 @@ def test_cases_response_contract(monkeypatch):
         assert rows[0]["aply_log_sn"] == str(rows[0]["app_id"])
         assert isinstance(rows[0]["aply_log_sn"], str)
     assert r.headers.get("x-total-count") is not None
+
+
+@pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
+def test_case_detail_and_save_all(monkeypatch):
+    """명세 v0.3 신설 — 안건 상세(GET /cases/{id})·전체 저장(save-all)."""
+    monkeypatch.setenv("EMBED_BACKEND", "hash")
+    from fastapi.testclient import TestClient
+    from api.main import app
+    c = TestClient(app)
+    r = c.get("/cases/1").json()
+    assert r.get("aply_log_sn") == "1" and "disabilities" in r and r.get("step")
+    if r["disabilities"]:
+        assert r["disabilities"][0]["wnd_sn"] == str(r["disabilities"][0]["dis_id"])
+    assert "error" in c.get("/cases/999999").json()
+    ok = c.post("/case-draft/1/save-all",
+                json={"sections": {"s1": "일괄 저장 검증"}}).json()
+    assert ok["ok"] is True and ok["saved"] == ["s1"]
+    bad = c.post("/case-draft/1/save-all", json={"sections": {"sx": "x"}}).json()
+    assert bad["ok"] is False and "error" in bad

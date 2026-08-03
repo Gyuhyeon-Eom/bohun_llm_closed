@@ -320,6 +320,34 @@ def api_cases(response: Response = None, search_text: str | None = None,
     return _paginate(rows, order, page, per_page, response)
 
 
+@app.get("/cases/{app_id}")           # 안건 상세 (화면설계 BNM-U00-0100 — 인적사항+신청상이+진행)
+def api_case_detail(app_id: int):
+    """안건 단건 조회 — 명세 v0.3 신설. 목록 없이 안건 ID(aply_log_sn)로 직접 진입."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM application WHERE app_id=%s", (app_id,))
+        app_row = cur.fetchone()
+        if not app_row:
+            return {"error": "안건 없음"}
+        cur.execute("SELECT * FROM disability WHERE app_id=%s ORDER BY dis_id", (app_id,))
+        diss = cur.fetchall()
+        cur.execute("""SELECT dis_id, round, yeu_result, bosang_result, status, decided_at
+                       FROM conclusion WHERE app_id=%s AND round=%s""",
+                    (app_id, app_row.get("round")))
+        concl = {c["dis_id"]: c for c in cur.fetchall()}
+        cur.execute("SELECT count(*) FROM case_draft WHERE app_id=%s"
+                    " AND content IS NOT NULL AND content<>''", (app_id,))
+        n_draft = cur.fetchone()["count"]
+    for d in diss:
+        d["conclusion"] = concl.get(d["dis_id"])
+    n_fixed = sum(1 for c in concl.values() if c["status"] == "확정")
+    step = ("확정" if diss and n_fixed >= len(diss) else
+            "판단" if concl else "작성" if n_draft else "접수")
+    return {**app_row, "disabilities": diss, "n_draft": n_draft, "step": step}
+
+
 @app.post("/cases/demo-seed")         # 정형화틀 기반 목데이터 6건 생성
 def api_demo_seed():
     import mockgen.generate_cases as g
@@ -513,6 +541,24 @@ def api_case_draft_generate(app_id: int, section: str):
         return case_draft.generate(app_id, section, get_llm(), _emb)
     except LLMUnavailable as e:
         return {"error": str(e)}
+
+
+class DraftSaveAllReq(BaseModel):
+    sections: dict                     # {"s1": "본문", "s2": "...", "s3": "..."} — 있는 란만
+    editor: str = "담당자"
+
+
+@app.post("/case-draft/{app_id}/save-all")  # 전체 심의의결서 저장 (화면설계 S4-③)
+def api_case_draft_save_all(app_id: int, req: DraftSaveAllReq):
+    from services import case_draft
+    saved, errors = [], []
+    for section, content in req.sections.items():
+        r = case_draft.save(app_id, section, content or "", req.editor)
+        (errors if "error" in r else saved).append(section)
+    out = {"ok": not errors, "saved": saved}
+    if errors:
+        out["error"] = f"저장 실패 란: {', '.join(errors)} (section=s1|s2|s3)"
+    return out
 
 
 @app.post("/case-draft/{app_id}/{section}/save")        # 담당자 수정 저장 (교정쌍 축적)
