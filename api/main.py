@@ -65,6 +65,29 @@ def _add_id_aliases(obj):
             _add_id_aliases(it)
 
 
+# 계약 API(명세 v0.7 — AI/LLM 처리)의 응답 봉투: {success, message, data} + 레거시 키 병행
+import re as _re2
+
+_ENVELOPE_RE = _re2.compile(
+    r"^/(chatbot$|grade-predict$"
+    r"|scan-docs/(upload$|\d+/(normalize|normalize-clear|index-clean|to-case|to-grade)$)"
+    r"|decision-doc/\d+/(draft|judge)$"
+    r"|cases/\d+/(similar$|similar-reasons$|files/ai-notes$))")
+
+
+def _envelope(j):
+    """success/message/data 봉투 — data가 정식 계약, 최상위 병행 키는 구화면 호환용."""
+    if isinstance(j, list):
+        return {"success": True, "message": "정상 처리되었습니다", "data": j}
+    if isinstance(j, dict):
+        ok = "error" not in j
+        payload = {k: v for k, v in j.items() if k != "error"}
+        return {"success": ok,
+                "message": j.get("error") or "정상 처리되었습니다",
+                "data": payload, **j}
+    return j
+
+
 @app.middleware("http")
 async def _contract_id_aliases(request, call_next):
     resp = await call_next(request)
@@ -74,6 +97,8 @@ async def _contract_id_aliases(request, call_next):
     try:
         data = _json.loads(body)
         _add_id_aliases(data)
+        if _ENVELOPE_RE.match(request.url.path):
+            data = _envelope(data)
         body = _json.dumps(data, ensure_ascii=False, default=str).encode()
     except Exception:
         pass                            # JSON 아니거나 변형 실패 — 원본 그대로
@@ -459,6 +484,31 @@ def api_decision_export_split(app_id: int, fmt: str = "txt"):
 def _yn(v: str) -> str:
     """판단값 정규화 — 자바 백단은 Y/N 코드로 보냄 (DB에 있는 상세는 LLM 서버가 직접 조회)."""
     return {"Y": "해당", "N": "비해당", "y": "해당", "n": "비해당"}.get(v, v)
+
+
+@app.post("/decision-doc/{app_id}/draft")     # AI 심의의결서 초안 생성 (화면설계 S3-① — 전체 란)
+def api_decision_draft(app_id: int):
+    """요청은 안건 ID만 — LLM 서버가 DB에서 자료를 읽어 s1~s3 란 초안을 생성·저장."""
+    from services import case_draft
+    from core.llm_client import LLMUnavailable
+    sections, errors = [], []
+    for section in ("s1", "s2", "s3"):
+        try:
+            r = case_draft.generate(app_id, section, get_llm(), _emb)
+            if "error" in r:
+                errors.append(f"{section}: {r['error']}")
+            else:
+                sections.append({"section": section, "content": r.get("content")})
+        except LLMUnavailable as e:
+            return {"error": str(e)}
+        except Exception as e:
+            errors.append(f"{section}: {e}")
+    if not sections:
+        return {"error": "; ".join(errors) or "초안 생성 실패"}
+    out = {"aply_log_sn": str(app_id), "sections": sections}
+    if errors:
+        out["partial"] = errors
+    return out
 
 
 @app.post("/decision-doc/{app_id}/judge")     # 이원 판단 선택 -> LLM 판단내용 생성·저장

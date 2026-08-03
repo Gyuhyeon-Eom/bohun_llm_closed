@@ -3,10 +3,10 @@
 국가보훈부 「AI·빅데이터 분석 기반 보훈심사 지원 시스템」 개발 원본 리포 (선도소프트 컨소시엄).
 
 ## API 개발 계약 (260803)
-- **`docs/interface/보훈심사_AI_API_명세_v0.6.xlsx` 대로 개발한다** — 프론트 측 양식(API별 시트,
+- **`docs/interface/보훈심사_AI_API_명세_v0.7.xlsx` 대로 개발한다** — 프론트 측 양식(API별 시트,
   자녀 필드 들여쓰기·회색). 상세 원칙은 `docs/interface/README.md`.
 - 명세의 원본은 `api/main.py` 실구현 — 코드와 문서가 어긋나면 버그. API 변경 시 명세 버전 up 후 프론트 공유.
-- 오류 규약: HTTP 200 + `{"error": "사유"}`. 봉투(code/message/result) 없음. 평문 주민번호 응답 금지.
+- 응답 규약: 계약 API는 `{success, message, data}` 봉투(실패 시 success=false+message). 평문 주민번호 응답 금지.
 
 ## 표준 워크플로
 모든 작업: commit → push(`claude/...` 브랜치) → PR → main 병합 → **bohun_llm_closed 동기화** → **bohun_stack 동기화**(해당 파일이 있는 경우만).

@@ -88,7 +88,9 @@ def test_right_panel_endpoints(monkeypatch):
     from fastapi.testclient import TestClient
     from api.main import app
     c = TestClient(app)
-    sim = c.get("/cases/1/similar", params={"n": 3}).json()
+    env = c.get("/cases/1/similar", params={"n": 3}).json()
+    assert env["success"] is True and "message" in env      # v0.7 봉투 규약
+    sim = env["data"]
     assert isinstance(sim, list) and len(sim) <= 3
     if sim:
         assert {"case_sn", "similarity", "summary", "reason"} <= set(sim[0])
@@ -97,7 +99,8 @@ def test_right_panel_endpoints(monkeypatch):
     if hist:
         assert {"at", "area", "event", "actor"} <= set(hist[0])
         assert hist[0]["actor"] in ("AI", "담당자")
-    assert "error" in c.get("/cases/999999/similar").json()
+    bad = c.get("/cases/999999/similar").json()
+    assert bad["success"] is False and bad["message"]
 
 
 @pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
@@ -119,3 +122,19 @@ def test_llm_server_minimal_requests(monkeypatch):
         p = c.post("/grade-predict", json={"grd_srng_sn": str(row[0])}).json()
         assert "error" not in p or p.get("grade1") is not None or "상이처가 없음" in p["error"]
     assert "error" in c.post("/grade-predict", json={"n": 3}).json()
+
+
+@pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
+def test_envelope_and_full_draft(monkeypatch):
+    """v0.7 — 계약 API 봉투(success/message/data)·전체 초안 생성·비계약 경로 무봉투."""
+    monkeypatch.setenv("EMBED_BACKEND", "hash")
+    from fastapi.testclient import TestClient
+    from api.main import app
+    c = TestClient(app)
+    d = c.post("/decision-doc/1/draft").json()
+    assert d["success"] is True and len(d["data"]["sections"]) == 3
+    j = c.post("/decision-doc/1/judge",
+               json={"wnd_sn": "1", "yeu_result": "Y", "bosang_result": "N"}).json()
+    assert j["success"] is True and j["data"]["yeu_result"] == "해당"
+    assert j["yeu_result"] == "해당"            # 최상위 병행 키 (구화면 호환)
+    assert isinstance(c.get("/cases").json(), list)   # 비계약 경로는 봉투 없음
