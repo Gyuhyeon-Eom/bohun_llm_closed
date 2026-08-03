@@ -98,3 +98,24 @@ def test_right_panel_endpoints(monkeypatch):
         assert {"at", "area", "event", "actor"} <= set(hist[0])
         assert hist[0]["actor"] in ("AI", "담당자")
     assert "error" in c.get("/cases/999999/similar").json()
+
+
+@pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
+def test_llm_server_minimal_requests(monkeypatch):
+    """명세 v0.6 — 자바 백단 최소 요청: 종합판단 Y/N, 판정예측 ID만."""
+    monkeypatch.setenv("EMBED_BACKEND", "hash")
+    import psycopg
+    from config.settings import PG_DSN
+    from fastapi.testclient import TestClient
+    from api.main import app
+    c = TestClient(app)
+    r = c.post("/decision-doc/1/judge",
+               json={"wnd_sn": "1", "yeu_result": "Y", "bosang_result": "N"}).json()
+    assert r.get("yeu_result") == "해당" and r.get("bosang_result") == "비해당"
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT ga_id FROM grade_agenda ORDER BY ga_id LIMIT 1")
+        row = cur.fetchone()
+    if row:
+        p = c.post("/grade-predict", json={"grd_srng_sn": str(row[0])}).json()
+        assert "error" not in p or p.get("grade1") is not None or "상이처가 없음" in p["error"]
+    assert "error" in c.post("/grade-predict", json={"n": 3}).json()

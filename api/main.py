@@ -456,9 +456,15 @@ def api_decision_export_split(app_id: int, fmt: str = "txt"):
     return FileResponse(path, filename=fname, media_type="application/zip")
 
 
+def _yn(v: str) -> str:
+    """판단값 정규화 — 자바 백단은 Y/N 코드로 보냄 (DB에 있는 상세는 LLM 서버가 직접 조회)."""
+    return {"Y": "해당", "N": "비해당", "y": "해당", "n": "비해당"}.get(v, v)
+
+
 @app.post("/decision-doc/{app_id}/judge")     # 이원 판단 선택 -> LLM 판단내용 생성·저장
 def api_judge(app_id: int, req: JudgeReq):
-    return decision_doc.draft_judgment(app_id, req.dis_id, req.yeu_result, req.bosang_result, _llm, _emb)
+    return decision_doc.draft_judgment(app_id, req.dis_id, _yn(req.yeu_result),
+                                       _yn(req.bosang_result), _llm, _emb)
 
 
 @app.post("/decision-doc/{app_id}/finalize")  # 담당자 수정 반영 + 확정
@@ -486,7 +492,8 @@ def api_dashboard():
 
 
 class GradePredictReq(BaseModel):
-    disease_name: str
+    # 안건 ID만 보내면 상이명·부위는 DB(grade_agenda.injury_items)에서 조회 — 자바 백단 최소 요청
+    disease_name: str | None = None
     body_part: str | None = None
     n: int = 5
     ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
@@ -842,7 +849,24 @@ def api_grade_agenda(ga_id: int):
 
 @app.post("/grade-predict")           # AI 판정예측 (과거 등급사례 기반 참고 예측)
 def api_grade_predict(req: GradePredictReq):
-    return grade_predict.predict(req.disease_name, req.body_part, _emb, req.n, req.ga_id)
+    disease, body = req.disease_name, req.body_part
+    if not disease and req.ga_id:      # ID만 받은 요청 — 상이명은 DB에서 (자바 백단 최소 요청)
+        import psycopg
+        from psycopg.rows import dict_row
+        from config.settings import PG_DSN
+        from services.grade_export import _items
+        with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM grade_agenda WHERE ga_id=%s", (req.ga_id,))
+            ag = cur.fetchone()
+        if not ag:
+            return {"error": "안건 없음"}
+        items = _items(dict(ag))
+        if not items or not items[0].get("injury"):
+            return {"error": "심사표에 상이처가 없음 — disease_name을 직접 지정하세요"}
+        disease, body = items[0]["injury"], items[0].get("body_part")
+    if not disease:
+        return {"error": "disease_name 또는 grd_srng_sn 필요"}
+    return grade_predict.predict(disease, body, _emb, req.n, req.ga_id)
 
 
 @app.get("/grade-agendas/{ga_id}/log")   # 안건 작업로그 (DAG 노드·이벤트)
