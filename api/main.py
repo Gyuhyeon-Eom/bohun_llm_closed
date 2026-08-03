@@ -72,6 +72,7 @@ _ENVELOPE_RE = _re2.compile(
     r"^/(chatbot$|grade-predict$"
     r"|scan-docs/(upload$|\d+/(normalize|normalize-clear|index-clean|to-case|to-grade)$)"
     r"|decision-doc/\d+/(draft|judge)$"
+    r"|grade-agendas/\d+/draft$"
     r"|cases/\d+/(similar$|similar-reasons$|files/ai-notes$))")
 
 
@@ -420,8 +421,9 @@ def api_demo_seed():
 
 
 class JudgeReq(BaseModel):
-    dis_id: int = Field(validation_alias=AliasChoices("dis_id", "wnd_sn"))
-    yeu_result: str                    # '해당' | '비해당'
+    # 명세 v0.8: 요청은 Y/N만 — 상이처 미지정 시 첫 상이처 (다상이 안건은 wnd_sn 지정)
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
+    yeu_result: str                    # 'Y'|'N' (해당|비해당 호환)
     bosang_result: str
 
 
@@ -505,6 +507,20 @@ def api_decision_draft(app_id: int):
             errors.append(f"{section}: {e}")
     if not sections:
         return {"error": "; ".join(errors) or "초안 생성 실패"}
+    # 관련자료 + 한줄요약 (명세 v0.9 — sections[].files): 안건 자료함에서 최종 자료 우선
+    from services import case_file
+    try:
+        case_file.ai_notes(app_id, _llm)       # note 빈 행 한줄요약 생성 (mock이면 무시)
+    except Exception:
+        pass
+    try:
+        files = [{"file_id": str(f["cf_id"]), "filename": f["file_name"] or f["title"],
+                  "page_no": None, "summary": (f.get("note") or "").removeprefix("[AI] ") or None}
+                 for f in case_file.list_files(app_id)[:5]]
+    except Exception:
+        files = []
+    for s in sections:
+        s["files"] = files
     out = {"aply_log_sn": str(app_id), "sections": sections}
     if errors:
         out["partial"] = errors
@@ -513,7 +529,18 @@ def api_decision_draft(app_id: int):
 
 @app.post("/decision-doc/{app_id}/judge")     # 이원 판단 선택 -> LLM 판단내용 생성·저장
 def api_judge(app_id: int, req: JudgeReq):
-    return decision_doc.draft_judgment(app_id, req.dis_id, _yn(req.yeu_result),
+    dis_id = req.dis_id
+    if dis_id is None:                 # 명세 v0.8 최소 요청 — 첫 상이처 기본
+        import psycopg
+        from config.settings import PG_DSN
+        with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+            cur.execute("SELECT dis_id FROM disability WHERE app_id=%s ORDER BY dis_id LIMIT 1",
+                        (app_id,))
+            row = cur.fetchone()
+        if not row:
+            return {"error": "안건에 상이처 없음"}
+        dis_id = row[0]
+    return decision_doc.draft_judgment(app_id, dis_id, _yn(req.yeu_result),
                                        _yn(req.bosang_result), _llm, _emb)
 
 
@@ -996,6 +1023,45 @@ def api_grade_log_add(ga_id: int, req: GradeLogReq):
             cur.execute("UPDATE grade_agenda SET progress=%s, updated_at=now() WHERE ga_id=%s",
                         (req.step, ga_id))
     return {"ok": True}
+
+
+@app.post("/grade-agendas/{ga_id}/draft")   # 상이등급 AI 심의의결서 생성 (명세 v0.9 — S6-②)
+def api_grade_draft(ga_id: int):
+    """심사표 상이처별 제안등급·심사의견을 AI 판정예측으로 채워 저장 — 담당자 수정 전제."""
+    import json as _j
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    from services.grade_export import _items
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM grade_agenda WHERE ga_id=%s", (ga_id,))
+        ag = cur.fetchone()
+        if not ag:
+            return {"error": "안건 없음"}
+        items = _items(dict(ag))
+        if not items:
+            return {"error": "심사표에 상이처가 없음"}
+        filled = []
+        for it in items:
+            injury = (it.get("injury") or "").strip()
+            if injury and not (it.get("proposed_grade") and it.get("opinion")):
+                p = grade_predict.predict(injury, it.get("body_part"), _emb, 5, ga_id)
+                if p.get("grade1"):
+                    it.setdefault("proposed_grade", None)
+                    if not it.get("proposed_grade"):
+                        it["proposed_grade"] = p["grade1"]
+                    if not it.get("opinion"):
+                        it["opinion"] = p.get("rationale")
+            filled.append({k: it.get(k) for k in
+                           ("injury", "body_part", "exam_dept", "proposed_grade", "opinion")})
+        cur.execute("UPDATE grade_agenda SET injury_items=%s::jsonb, updated_at=now()"
+                    " WHERE ga_id=%s", (_j.dumps(items, ensure_ascii=False), ga_id))
+        cur.execute("INSERT INTO grade_log(ga_id, step, event, actor, detail, status)"
+                    " VALUES (%s,'검토','AI 심의의결서 작성','AI',%s,'done')",
+                    (ga_id, f"상이처 {len(filled)}건 제안등급·심사의견 생성"))
+        conn.commit()
+    return {"ga_id": str(ga_id), "items": filled,
+            "note": "AI 작성분은 참고용 — 확정은 담당자·심의 의결"}
 
 
 @app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (확정 양식 14컬럼)

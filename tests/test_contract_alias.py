@@ -138,3 +138,25 @@ def test_envelope_and_full_draft(monkeypatch):
     assert j["success"] is True and j["data"]["yeu_result"] == "해당"
     assert j["yeu_result"] == "해당"            # 최상위 병행 키 (구화면 호환)
     assert isinstance(c.get("/cases").json(), list)   # 비계약 경로는 봉투 없음
+
+
+@pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
+def test_v09_grade_draft_and_files(monkeypatch):
+    """v0.9 — 상이등급 심의의결서 생성·요건 초안 files[]·종합판단 wnd_sn 생략."""
+    monkeypatch.setenv("EMBED_BACKEND", "hash")
+    import psycopg
+    from config.settings import PG_DSN
+    from fastapi.testclient import TestClient
+    from api.main import app
+    c = TestClient(app)
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT ga_id FROM grade_agenda ORDER BY ga_id LIMIT 1")
+        ga = cur.fetchone()[0]
+    g = c.post(f"/grade-agendas/{ga}/draft").json()
+    assert g["success"] is True and g["data"]["items"]
+    assert {"injury", "proposed_grade", "opinion"} <= set(g["data"]["items"][0])
+    d = c.post("/decision-doc/1/draft").json()
+    s0 = d["data"]["sections"][0]
+    assert "files" in s0 and {"file_id", "filename", "page_no", "summary"} <= set(s0["files"][0])
+    j = c.post("/decision-doc/1/judge", json={"yeu_result": "Y", "bosang_result": "N"}).json()
+    assert j["success"] is True and j["data"]["yeu_result"] == "해당"
