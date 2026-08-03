@@ -16,7 +16,7 @@ from ingestion.verifier import verify_blocks
 from ingestion.chunker import chunk_blocks
 from ingestion.indexer import index_document
 from core.llm_client import RuleCorrectLLM
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from core.llm_client import get_llm
 from ingestion.embedder import get_embedder
 from services import chatbot, similar_case, review_doc, stats, decision_doc, grade_predict
@@ -42,11 +42,56 @@ async def _no_stale_assets(request, call_next):
 _emb = get_embedder()
 
 
+# ── API 명세 v0.2 계약 별칭 (260803): ID는 DB정의서 v0.6 영문명·string 계약 ──
+#   응답: 프로토타입 키(app_id 등)를 유지하면서 v0.6 키(aply_log_sn 등)를 string으로 병행 수록
+#   요청: 바디의 v0.6 키를 pydantic 별칭으로 수용 (아래 각 모델 Field 참조)
+_ID_ALIAS = {"app_id": "aply_log_sn", "dis_id": "wnd_sn", "ga_id": "grd_srng_sn",
+             "sd_id": "orgtxt_dcmnt_sn", "cf_id": "orgtxt_dcmnt_sn",
+             "cs_id": "chbt_sshn_sn", "session_id": "chbt_sshn_sn",
+             "fb_id": "fdbk_sn", "parent_id": "up_sn", "case_id": "case_sn",
+             "doc_id": "crps_doc_sn", "fe_id": "mdfcn_hstry_sn"}
+
+
+def _add_id_aliases(obj):
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            _add_id_aliases(obj[k])
+            a = _ID_ALIAS.get(k)
+            if a and a not in obj:
+                v = obj[k]
+                obj[a] = str(v) if isinstance(v, (int, float)) else v
+    elif isinstance(obj, list):
+        for it in obj:
+            _add_id_aliases(it)
+
+
+@app.middleware("http")
+async def _contract_id_aliases(request, call_next):
+    resp = await call_next(request)
+    if not resp.headers.get("content-type", "").startswith("application/json"):
+        return resp
+    body = b"".join([chunk async for chunk in resp.body_iterator])
+    try:
+        data = _json.loads(body)
+        _add_id_aliases(data)
+        body = _json.dumps(data, ensure_ascii=False, default=str).encode()
+    except Exception:
+        pass                            # JSON 아니거나 변형 실패 — 원본 그대로
+    headers = dict(resp.headers)
+    headers.pop("content-length", None)
+    return Response(content=body, status_code=resp.status_code,
+                    headers=headers, media_type="application/json")
+
+
+# 요청 바디 ID는 각 모델에서 AliasChoices로 프로토타입 키·v0.6 키 둘 다 수용
+# (pydantic v2 lax 모드라 "7" 같은 string 값도 int로 자동 변환됨 — 계약과 호환)
+
+
 class Question(BaseModel):
     question: str
     only_uploaded: bool = False   # True면 UI로 넣은 문서만 검색
     history: list[dict] = []      # [{"role":"user"|"ai","text":...}] 최근 대화 (챗봇용)
-    session_id: int | None = None # 챗봇 세션 — None이면 첫 질문 시 새 세션 자동 생성
+    session_id: int | None = Field(None, validation_alias=AliasChoices("session_id", "chbt_sshn_sn"))
     persist: bool = True          # False면 기록 저장 안 함 (AI 검토 패널 질의 등 일회성)
 
 
@@ -285,13 +330,13 @@ def api_demo_seed():
 
 
 class JudgeReq(BaseModel):
-    dis_id: int
+    dis_id: int = Field(validation_alias=AliasChoices("dis_id", "wnd_sn"))
     yeu_result: str                    # '해당' | '비해당'
     bosang_result: str
 
 
 class FinalizeReq(BaseModel):
-    dis_id: int
+    dis_id: int = Field(validation_alias=AliasChoices("dis_id", "wnd_sn"))
     body_text: str | None = None       # 담당자 수정본
 
 
@@ -379,13 +424,13 @@ class GradePredictReq(BaseModel):
     disease_name: str
     body_part: str | None = None
     n: int = 5
-    ga_id: int | None = None   # 담당자 유사사례 선별 반영용
+    ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
 
 
 class CaseFileReq(BaseModel):
     kind: str = "추가 자료"
     title: str
-    dis_id: int | None = None
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
     note: str | None = None
 
 
@@ -505,7 +550,7 @@ def api_export_assembled(app_id: int, fmt: str = "txt"):
 class FieldEditReq(BaseModel):
     field: str
     value: str
-    dis_id: int | None = None
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
     editor: str = "담당자"
 
 
@@ -560,11 +605,11 @@ def api_field_edits(app_id: int):
 
 class SimilarPickReq(BaseModel):
     scope: str                 # case | grade
-    case_id: int
+    case_id: int = Field(validation_alias=AliasChoices("case_id", "case_sn", "trgt_case_sn"))
     kind: str                  # exclude | pin | clear
-    app_id: int | None = None
-    dis_id: int | None = None
-    ga_id: int | None = None
+    app_id: int | None = Field(None, validation_alias=AliasChoices("app_id", "aply_log_sn"))
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
+    ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
     weight: float = 1.0
     note: str | None = None
 
@@ -989,7 +1034,7 @@ def api_grade_scan(ga_id: int):
 class FeedbackReq(BaseModel):
     author: str = "익명"
     content: str
-    parent_id: int | None = None
+    parent_id: int | None = Field(None, validation_alias=AliasChoices("parent_id", "up_sn"))
 
 
 @app.get("/feedback")                 # T/F 피드백 게시판: 글+답글 트리
