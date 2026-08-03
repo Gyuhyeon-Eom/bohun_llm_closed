@@ -8,7 +8,7 @@ import json as _json
 import os
 import tempfile, threading, time
 from pathlib import Path
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from ingestion.types import Block, BlockType
@@ -213,8 +213,25 @@ def api_llm_status():
                 "detail": f"LLM 서버 응답 없음({base}) - ollama serve 실행 확인"}
 
 
-@app.get("/cases")                    # 안건 목록 (사건 스키마: application)
-def api_cases():
+def _paginate(rows: list, order: str | None, page: int | None, per_page: int | None,
+              response=None) -> list:
+    """목록 공통 정렬·페이징 (API 명세 v0.2) — 전체 건수는 X-Total-Count 헤더."""
+    if order == "desc":
+        rows = list(reversed(rows))
+    if response is not None:
+        response.headers["X-Total-Count"] = str(len(rows))
+    if per_page:
+        page = page or 1
+        rows = rows[(page - 1) * per_page: page * per_page]
+    return rows
+
+
+@app.get("/cases")                    # 안건 목록 (사건 스키마: application) — 명세 v0.2 검색·페이징
+def api_cases(response: Response = None, search_text: str | None = None,
+              status: str | None = None, subcommittee: str | None = None,
+              apply_kind: str | None = None, step: str | None = None,
+              order: str | None = None, page: int | None = None,
+              per_page: int | None = None):
     import psycopg
     from psycopg.rows import dict_row
     from config.settings import PG_DSN
@@ -245,7 +262,17 @@ def api_cases():
             r["step"] = "작성"
         else:
             r["step"] = "접수"
-    return rows
+    # 검색·필터 (명세 v0.2 — 소량 데이터라 파이썬 후처리로 충분, 운용 전환 시 SQL화)
+    if search_text:
+        t = search_text.strip()
+        rows = [r for r in rows if any(t in str(r.get(k) or "") for k in
+                ("recv_no", "agenda_no", "applicant")) or
+                any(t in (d or "") for d in (r.get("dis_names") or []))]
+    for key, val in (("status", status), ("subcommittee", subcommittee),
+                     ("apply_kind", apply_kind), ("step", step)):
+        if val:
+            rows = [r for r in rows if str(r.get(key) or "") == val]
+    return _paginate(rows, order, page, per_page, response)
 
 
 @app.post("/cases/demo-seed")         # 정형화틀 기반 목데이터 6건 생성
@@ -574,14 +601,25 @@ def api_cases_search(q: str, n: int = 10):
     return similar_pick.search_cases(q, n)
 
 
-@app.get("/grade-agendas")            # 상이등급심사 안건 목록 (화면 v0.4)
-def api_grade_agendas():
+@app.get("/grade-agendas")            # 상이등급심사 안건 목록 (화면 v0.4) — 명세 v0.2 검색·페이징
+def api_grade_agendas(response: Response = None, search_text: str | None = None,
+                      progress: str | None = None, order: str | None = None,
+                      page: int | None = None, per_page: int | None = None):
+    import json as _j
     import psycopg
     from psycopg.rows import dict_row
     from config.settings import PG_DSN
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("SELECT * FROM grade_agenda ORDER BY ga_id")
-        return cur.fetchall()
+        rows = cur.fetchall()
+    if search_text:
+        t = search_text.strip()
+        rows = [r for r in rows if t in str(r.get("agenda_no") or "")
+                or t in str(r.get("person") or "")
+                or t in _j.dumps(r.get("injury_items") or [], ensure_ascii=False)]
+    if progress:
+        rows = [r for r in rows if str(r.get("progress") or "") == progress]
+    return _paginate(rows, order, page, per_page, response)
 
 
 @app.get("/grade-agendas/export-batch")  # 선택 안건 심사표 일괄 zip (ids=1,2,3) — {ga_id} 라우트보다 먼저 선언
