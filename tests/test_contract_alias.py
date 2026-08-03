@@ -160,3 +160,31 @@ def test_v09_grade_draft_and_files(monkeypatch):
     assert "files" in s0 and {"file_id", "filename", "page_no", "summary"} <= set(s0["files"][0])
     j = c.post("/decision-doc/1/judge", json={"yeu_result": "Y", "bosang_result": "N"}).json()
     assert j["success"] is True and j["data"]["yeu_result"] == "해당"
+
+
+@pytest.mark.skipif(not _pg_up(), reason="PostgreSQL 미기동")
+def test_v10_export_envelope(monkeypatch):
+    """v0.10 — 심사표 산출: 봉투 JSON(file_name/url), url은 xlsx 스트림, grade_log 보관 기록."""
+    monkeypatch.setenv("EMBED_BACKEND", "hash")
+    import psycopg
+    from config.settings import PG_DSN
+    from fastapi.testclient import TestClient
+    from api.main import app
+    c = TestClient(app)
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT ga_id FROM grade_agenda ORDER BY ga_id LIMIT 1")
+        ga = cur.fetchone()[0]
+    g = c.get(f"/grade-agendas/{ga}/export").json()
+    assert g["success"] is True
+    assert {"file_name", "url", "expires_s"} <= set(g["data"])
+    assert g["data"]["file_name"].endswith(".xlsx")
+    r2 = c.get(g["data"]["url"])                     # local이면 ?dl=1 스트림
+    assert r2.status_code == 200
+    assert r2.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml")
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT file_name FROM grade_log WHERE ga_id=%s AND event='심사표 엑셀 산출'"
+                    " ORDER BY gl_id DESC LIMIT 1", (ga,))
+        assert cur.fetchone()[0] == g["data"]["file_name"]
+    bad = c.get("/grade-agendas/999999/export").json()
+    assert bad["success"] is False and bad["message"]

@@ -72,7 +72,7 @@ _ENVELOPE_RE = _re2.compile(
     r"^/(chatbot$|grade-predict$"
     r"|scan-docs/(upload$|\d+/(normalize|normalize-clear|index-clean|to-case|to-grade)$)"
     r"|decision-doc/\d+/(draft|judge)$"
-    r"|grade-agendas/\d+/draft$"
+    r"|grade-agendas/\d+/(draft|export)$"
     r"|cases/\d+/(similar$|similar-reasons$|files/ai-notes$))")
 
 
@@ -1064,12 +1064,41 @@ def api_grade_draft(ga_id: int):
             "note": "AI 작성분은 참고용 — 확정은 담당자·심의 의결"}
 
 
-@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (확정 양식 14컬럼)
-def api_grade_export(ga_id: int):
+@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 산출 — 기본 봉투 JSON+URL, dl=1 파일 스트림
+def api_grade_export(ga_id: int, dl: int = 0):
+    """명세 v0.10: 프론트는 파일 스트림 대신 봉투 JSON을 받는다(260803 프론트 요청).
+    기본 응답 = {success, message, data:{file_name, url, expires_s}} — url을 열면 다운로드.
+    dl=1은 그 url이 가리키는 실제 파일 스트림(브라우저 링크용, 프론트가 직접 파싱하지 않음)."""
+    import psycopg
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM grade_agenda WHERE ga_id=%s", (ga_id,))
+        if not cur.fetchone():
+            return {"error": "해당 등급 안건 없음"}
     from services import grade_export
     fname, path = grade_export.export_xlsx(ga_id, emb=_emb)
-    return FileResponse(path, filename=fname,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    if dl:
+        return FileResponse(path, filename=fname,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # 산출본 보관(스토리지) + grade_log 기록 — '이전 심사 기록 엑셀 확인' 메뉴의 원천
+    url, backend, expires = f"/grade-agendas/{ga_id}/export?dl=1", "local", None
+    try:
+        from core.storage import get_storage
+        st = get_storage()
+        key = f"exports/grade/{ga_id}/{fname}"
+        st.put_file(key, path)
+        if st.backend == "minio":
+            from config.settings import PRESIGNED_EXPIRES_S
+            url, backend, expires = st.presigned_url(key), "minio", PRESIGNED_EXPIRES_S
+    except Exception:
+        pass                      # 보관 실패해도 dl=1 즉석 생성 URL은 항상 유효
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO grade_log(ga_id, step, event, actor, detail, file_name, status)"
+                    " VALUES (%s,'산출','심사표 엑셀 산출','AI','심사표 xlsx 생성·보관',%s,'done')",
+                    (ga_id, fname))
+        conn.commit()
+    return {"ga_id": str(ga_id), "file_name": fname, "url": url,
+            "backend": backend, "expires_s": expires}
 
 
 @app.get("/rule-check/{app_id}")      # 분과 판단기준 자동대조 (정형화틀 v2.4, 결정적)
