@@ -486,6 +486,18 @@ def export_txt(app_id: int, emb, dis_id: int | None = None) -> tuple[str, str]:
     return f"{title}.txt", path
 
 
+def export_hwpx(app_id: int, emb, dis_id: int | None = None) -> tuple[str, str]:
+    """한글(hwpx) 산출 — 검토의견 25·26번(다운로드 포맷에 한글 추가) 대응.
+    표준 라이브러리 기반 조립(services/hwpx_export.py)이라 외부 패키지 불필요."""
+    import os, tempfile
+    from services.hwpx_export import build_hwpx
+    title, text = _full_text(app_id, emb, dis_id)
+    path = os.path.join(tempfile.gettempdir(), f"{title}.hwpx")
+    with open(path, "wb") as f:
+        f.write(build_hwpx(title, text))
+    return f"{title}.hwpx", path
+
+
 def export_split(app_id: int, emb, fmt: str = "txt") -> tuple[str, str]:
     """상이처가 여러 건인 안건의 상이처별 개별본을 zip으로 일괄 산출. fmt=txt|pdf."""
     import os

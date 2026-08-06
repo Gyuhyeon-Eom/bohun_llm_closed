@@ -458,7 +458,7 @@ def api_decision_doc(app_id: int):
     return doc or {"error": "안건 없음"}
 
 
-@app.get("/decision-doc/{app_id}/export")   # 심의의결서 산출물 (fmt=txt|pdf, dis_id=상이처 개별본)
+@app.get("/decision-doc/{app_id}/export")   # 심의검토서 산출물 (fmt=txt|pdf|hwpx, dis_id=상이처 개별본)
 def api_decision_export(app_id: int, fmt: str = "txt", dis_id: int | None = None):
     if fmt == "pdf":
         try:
@@ -466,6 +466,10 @@ def api_decision_export(app_id: int, fmt: str = "txt", dis_id: int | None = None
         except ModuleNotFoundError:
             return {"error": "PDF 생성 모듈(reportlab) 미설치 — pip install reportlab 후 서버 재시작"}
         media = "application/pdf"
+    elif fmt == "hwpx":
+        # 검토의견 25·26: 한글 포맷 다운로드 — 표준 라이브러리 조립(반입 패키지 불필요)
+        fname, path = decision_doc.export_hwpx(app_id, _emb, dis_id)
+        media = "application/hwp+zip"
     else:
         fname, path = decision_doc.export_txt(app_id, _emb, dis_id)
         media = "text/plain; charset=utf-8"
@@ -768,11 +772,18 @@ def api_export_assembled(app_id: int, fmt: str = "txt"):
     text = case_draft.assemble(app_id)
     if fmt == "pdf":
         from services.decision_doc import _text_to_pdf
-        fname = f"심의의결서_조립_{app_id}.pdf"
+        fname = f"심의검토서_조립_{app_id}.pdf"
         path = os.path.join(tempfile.gettempdir(), fname)
         _text_to_pdf(text, path)
         return FileResponse(path, filename=fname, media_type="application/pdf")
-    fname = f"심의의결서_조립_{app_id}.txt"
+    if fmt == "hwpx":
+        # 검토의견 25·26: 한글 포맷 — 표준 라이브러리 조립(services/hwpx_export.py)
+        from services.hwpx_export import build_hwpx
+        fname = f"심의검토서_조립_{app_id}.hwpx"
+        path = os.path.join(tempfile.gettempdir(), fname)
+        open(path, "wb").write(build_hwpx(f"심의검토서(안) — 안건 {app_id}", text))
+        return FileResponse(path, filename=fname, media_type="application/hwp+zip")
+    fname = f"심의검토서_조립_{app_id}.txt"
     path = os.path.join(tempfile.gettempdir(), fname)
     open(path, "w", encoding="utf-8").write(text)
     return FileResponse(path, filename=fname, media_type="text/plain; charset=utf-8")

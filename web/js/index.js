@@ -1515,11 +1515,13 @@ function openSendModal(){
       ${row('조립 심의검토서 <span class="stepchip" style="background:#dcfce7;color:#15803d">권장 · LLM 미사용</span>',
         '초안(1~3장 확정 텍스트) + 종합판단(4장)을 기계적으로 결합 — 필수 체크와 4장 판단 완료 시',
         `<button class="btn outline sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=txt','_blank')">TXT</button>
+         <button class="btn outline sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=hwpx','_blank')">한글(hwpx)</button>
          <button class="btn primary sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=pdf','_blank')">PDF</button>`,
         gate.ok, asmMsg)}
       ${row('생성본 의결서 (1~4장 종합)', 'AI 생성문 포함 구 양식 — 분과 체크리스트·4장 판단 완료 시',
         `<button class="btn outline sm" ${dis(genOk)} onclick="doCopy()">${icon('IconCopy',12)} 복사</button>
          <button class="btn outline sm" ${dis(genOk)} onclick="doDownloadTxt()">TXT</button>
+         <button class="btn outline sm" ${dis(genOk)} onclick="window.open('/decision-doc/'+doc.app_id+'/export?fmt=hwpx','_blank')">한글(hwpx)</button>
          <button class="btn outline sm" ${dis(genOk)} onclick="doDownloadPdf()">PDF</button>`,
         genOk, genMsg)}
       ${(doc.disabilities||[]).length>1 ? row('상이처별 개별본 ZIP', `상이처 ${doc.disabilities.length}건 — 개별 의결서 묶음`,
