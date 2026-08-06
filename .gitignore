@@ -18,9 +18,10 @@ caddy.stderr.log
 web/*.bak
 web/*.bak.*
 
-# IDE / OS
+# IDE / OS / 로컬 개발도구
 .idea/
 .DS_Store
+.claude/
 
 # 로컬 비밀/환경 (혹시 생기면)
 .env
@@ -31,12 +32,9 @@ data/samples/
 data/uploads/
 data/originals/
 
-# 반입 수집물 (USB로 이동 — 리포에 넣지 않음)
-transfer_out/
-*.bundle
-
-# 실데이터(개인의료정보) — 깃 반입 금지
+# ★ 실데이터(개인의료정보) — 어떤 경로에서도 깃에 넣지 않는다.
+#   성명·주민번호가 포함된 OCR 산출물은 내부망 매체로만 이동 (README 보안 원칙)
 *_OCR_*.txt
 data/scans_txt/
 data/clean_pdf/
-data/originals/
+data/clean_txt/

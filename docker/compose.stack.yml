@@ -1,0 +1,92 @@
+# 파이프라인 전용 스택 (웹 없음) — db + minio + pipeline CLI
+#   기동:   docker compose -f docker/compose.stack.yml up -d db minio
+#   점검:   docker compose -f docker/compose.stack.yml run --rm pipeline check
+#   실행:   docker compose -f docker/compose.stack.yml run --rm -v $PWD/in:/in -v $PWD/out:/app/out \
+#             pipeline ingest /in/스캔.pdf --convert grade
+# 스키마 최초 적용: run --rm --entrypoint python pipeline scripts/apply_db_updates.py
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bohun}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bohun}
+      POSTGRES_DB: ${POSTGRES_DB:-bohun}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db:/docker-entrypoint-initdb.d:ro   # 최초 생성 시 schema*.sql 자동 적용
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bohun} -d ${POSTGRES_DB:-bohun}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-bohun}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-bohun-secret}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  pipeline:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.pipeline
+      args:
+        WITH_ML: ${WITH_ML:-1}
+        OFFLINE: ${OFFLINE:-0}
+    environment:
+      PG_DSN: postgresql://${POSTGRES_USER:-bohun}:${POSTGRES_PASSWORD:-bohun}@db:5432/${POSTGRES_DB:-bohun}
+      STORAGE_BACKEND: minio
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-bohun}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-bohun-secret}
+      LLM_BACKEND: ${LLM_BACKEND:-openai}
+      FABRIX_ENDPOINT: ${FABRIX_ENDPOINT:-}
+      FABRIX_MODEL: ${FABRIX_MODEL:-}
+      FABRIX_API_KEY: ${FABRIX_API_KEY:-}
+      VLM_ENDPOINT: ${VLM_ENDPOINT:-}
+      VLM_MODEL: ${VLM_MODEL:-}
+      EMBED_BACKEND: ${EMBED_BACKEND:-bge}
+      EMBED_MODEL: ${EMBED_MODEL:-/models/bge-m3}
+      ORCH_BACKEND: ${ORCH_BACKEND:-langgraph}
+      LLM_MODEL_MAIN: ${LLM_MODEL_MAIN:-gpt-oss-120b}
+      LLM_MODEL_LIGHT: ${LLM_MODEL_LIGHT:-gemma-4-31b}
+      # FabriX OpenAPI 실규격 — BASE_URL+키 2종+모델ID 2종이면 LLM·필터·파싱 자동 연결
+      FABRIX_BASE_URL: ${FABRIX_BASE_URL:-}
+      FABRIX_CLIENT_KEY: ${FABRIX_CLIENT_KEY:-}
+      FABRIX_PASS_KEY: ${FABRIX_PASS_KEY:-}
+      FABRIX_USER_EMAIL: ${FABRIX_USER_EMAIL:-}
+      FABRIX_MODEL_ID_MAIN: ${FABRIX_MODEL_ID_MAIN:-}
+      FABRIX_MODEL_ID_LIGHT: ${FABRIX_MODEL_ID_LIGHT:-}
+      FABRIX_TEXT_MODEL_ID: ${FABRIX_TEXT_MODEL_ID:-}
+      FABRIX_I2T_MODEL_ID: ${FABRIX_I2T_MODEL_ID:-}
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      PARSING_API: ${PARSING_API:-}
+      CHUNKING_API: ${CHUNKING_API:-}
+      EMBEDDING_API: ${EMBEDDING_API:-}
+      RERANK_API: ${RERANK_API:-}
+      SECURITY_FILTER_API: ${SECURITY_FILTER_API:-}
+      SECURITY_FILTER_MODE: ${SECURITY_FILTER_MODE:-in,out}
+    volumes:
+      - ../out:/app/out          # 산출물(의결서·심사표·런 매니페스트)
+      - /models:/models:ro       # 반입 임베딩 모델 (호스트 경로 조정)
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    profiles: ["cli"]            # run --rm pipeline ... 로만 사용 (상주 아님)
+
+volumes:
+  pgdata:
+  miniodata:

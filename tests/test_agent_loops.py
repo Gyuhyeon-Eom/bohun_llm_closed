@@ -26,7 +26,7 @@ class SeqLLM(MockLLM):
         self.seq = {k: list(v) for k, v in seq.items()}
         self.calls = []
 
-    def _call(self, prompt: str) -> str:
+    def _call(self, prompt: str, prompt_name: str = "") -> str:
         self.calls.append(self._last_name)
         q = self.seq.get(self._last_name)
         if not q:
@@ -193,7 +193,7 @@ def test_refine_disabled():
 
 def test_refine_survives_llm_failure():
     class BoomLLM(MockLLM):
-        def _call(self, prompt):
+        def _call(self, prompt, prompt_name=""):
             raise RuntimeError("LLM 다운")
     text, meta = refine("초안", evidence="근거", verdict="해당", llm=BoomLLM(), max_passes=1)
     assert text == "초안" and meta["revised"] is False, "검증 실패가 문서 생성을 막으면 안 됨"

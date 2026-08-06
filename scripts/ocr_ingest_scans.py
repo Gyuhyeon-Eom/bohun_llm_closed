@@ -323,19 +323,22 @@ def parse_header(texts):
             "hospital": hospital, "doc_kind": kind}
 
 
-def ingest(path, dpi=200):
+def insert_scan_doc(texts: list[str], src_path: str, ocr_used) -> tuple[int, dict, int]:
+    """페이지 텍스트 → 파싱(헤더·검사블록) → scan_doc INSERT + 원본 보관.
+    전사 방식과 무관한 공용 적재 경로 — tesseract(ingest)·VLM(pipeline.flow_ingest) 공유.
+    같은 file_name 재실행 시 대체(멱등)."""
     import psycopg
     from config.settings import PG_DSN
 
-    texts, pages, ocr_used = extract_text(path, dpi)
     head = parse_header(texts)
     blocks = parse_blocks(texts)
+    pages = len(texts)
 
     os.makedirs(SCAN_DIR, exist_ok=True)
-    fname = os.path.basename(path)
+    fname = os.path.basename(src_path)
     dest = os.path.join(SCAN_DIR, fname)
-    if os.path.abspath(path) != os.path.abspath(dest):
-        shutil.copy2(path, dest)
+    if os.path.abspath(src_path) != os.path.abspath(dest):
+        shutil.copy2(src_path, dest)
 
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM scan_doc WHERE file_name=%s", (fname,))
@@ -344,11 +347,46 @@ def ingest(path, dpi=200):
             " orig_path, pages, ocr_used, raw_text, exams)"
             " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING sd_id",
             (head["reg_no"], head["person"], head["sex_age"], head["hospital"],
-             head["doc_kind"], fname, dest, pages, ocr_used,
+             head["doc_kind"], fname, dest, pages, bool(ocr_used),
              "\f".join(texts), json.dumps(blocks, ensure_ascii=False)))
         sd_id = cur.fetchone()[0]
         conn.commit()
-    return sd_id, head, len(blocks), ocr_used
+    _store_original(sd_id, dest, pages, texts)
+    return sd_id, head, len(blocks)
+
+
+def ingest(path, dpi=200):
+    texts, pages, ocr_used = extract_text(path, dpi)
+    sd_id, head, nblk = insert_scan_doc(texts, path, ocr_used)
+    return sd_id, head, nblk, ocr_used
+
+
+def _store_original(sd_id: int, local_path: str, pages: int, texts: list[str]):
+    """원본을 객체 스토리지에 적재 + 페이지 상태(file_page) 생성 — DB정의서 v0.6.
+    STORAGE_BACKEND=local이면 obj_key만 로컬 경로로 기록(현행 동작 유지)."""
+    import psycopg
+    from config.settings import PG_DSN
+    from core.storage import get_storage
+    st = get_storage()
+    fname = os.path.basename(local_path)
+    try:
+        meta = (st.put_file(f"scans/{sd_id}/{fname}", local_path)
+                if st.backend == "minio" else
+                {"backend": "local", "bucket": None, "obj_key": local_path})
+    except Exception as e:
+        print(f"  [storage] 원본 적재 실패({e}) — 로컬 경로 유지")
+        meta = {"backend": "local", "bucket": None, "obj_key": local_path}
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE scan_doc SET bucket=%s, obj_key=%s WHERE sd_id=%s",
+                    (meta["bucket"], meta["obj_key"], sd_id))
+        for no in range(1, (pages or 0) + 1):
+            has_txt = bool(texts[no - 1].strip()) if no <= len(texts) else False
+            cur.execute(
+                "INSERT INTO file_page(sd_id, page_no, txt_layer, ocr_done)"
+                " VALUES (%s,%s,%s,%s)"
+                " ON CONFLICT (sd_id, page_no) DO UPDATE SET ocr_done=EXCLUDED.ocr_done",
+                (sd_id, no, has_txt, has_txt))
+        conn.commit()
 
 
 def main():

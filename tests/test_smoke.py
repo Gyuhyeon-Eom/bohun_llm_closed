@@ -76,7 +76,7 @@ class _FlakyLLM(LLMClient):
     """n회 실패 후 성공. 재시도 로직 검증용."""
     def __init__(self, exc, fail_times):
         self.exc, self.fail_times, self.calls = exc, fail_times, 0
-    def _call(self, prompt):
+    def _call(self, prompt, prompt_name=""):
         self.calls += 1
         if self.calls <= self.fail_times:
             raise self.exc

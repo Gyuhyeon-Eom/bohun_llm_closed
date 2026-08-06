@@ -75,5 +75,24 @@ class HashEmbedder:
         return [v / norm for v in vec]
 
 
+class ApiEmbedder:
+    """플랫폼 Embedding API 백엔드 (EMBED_BACKEND=api) — 260730 요금표.
+    배치 분할 호출 + 차원 검증(pgvector vector(1024)와 불일치 시 즉시 오류 — 조용한 오염 방지)."""
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        from config.settings import EMBED_BATCH, EMBED_DIM
+        from core.provider_apis import embed_texts
+        out: list[list[float]] = []
+        for i in range(0, len(texts), EMBED_BATCH):
+            out.extend(embed_texts(texts[i:i + EMBED_BATCH]))
+        if out and len(out[0]) != EMBED_DIM:
+            raise RuntimeError(
+                f"Embedding API 차원 {len(out[0])} ≠ 스키마 vector({EMBED_DIM}) — "
+                f"EMBED_DIM·DB 스키마 재정의 후 전량 재임베딩 필요")
+        return out
+
+
 def get_embedder(backend: str = EMBED_BACKEND):
+    if backend == "api":
+        return ApiEmbedder()
     return BgeEmbedder() if backend == "bge" else HashEmbedder()

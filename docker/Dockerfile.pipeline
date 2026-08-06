@@ -1,0 +1,38 @@
+# 보훈심사 LLM 파이프라인 컨테이너 (웹 없음 — CLI 3플로우)
+#   실행:  docker compose -f docker/compose.stack.yml run --rm pipeline check
+#          docker compose -f docker/compose.stack.yml run --rm pipeline ingest /in/스캔.pdf
+#   폐쇄망 빌드: wheels/에 반입 wheel 배치 후 --build-arg OFFLINE=1
+FROM python:3.12-slim
+
+ARG OFFLINE=0
+ARG WITH_ML=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-kor \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+COPY wheels* /wheels/
+RUN if [ "$WITH_ML" = "1" ]; then cp requirements.txt /tmp/req.txt; \
+    else grep -v FlagEmbedding requirements.txt > /tmp/req.txt; fi \
+ && if [ "$OFFLINE" = "1" ]; then \
+        pip install --no-cache-dir --no-index --find-links=/wheels -r /tmp/req.txt; \
+    else pip install --no-cache-dir -r /tmp/req.txt; fi \
+ && rm -rf /wheels
+
+COPY config ./config
+COPY core ./core
+COPY services ./services
+COPY ingestion ./ingestion
+COPY orchestration ./orchestration
+COPY pipeline ./pipeline
+COPY db ./db
+COPY scripts ./scripts
+COPY data/laws ./data/laws
+COPY data/manuals ./data/manuals
+COPY data/precedents ./data/precedents
+
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["python", "-m", "pipeline"]
+CMD ["check"]

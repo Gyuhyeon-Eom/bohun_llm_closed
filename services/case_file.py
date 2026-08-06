@@ -102,8 +102,24 @@ def save_upload(app_id: int, filename: str, data: bytes, kind: str, note=None) -
     path = os.path.join(UPLOAD_DIR, f"app{app_id}_{safe}")
     with open(path, "wb") as f:
         f.write(data)
+    # 객체 스토리지 병행 적재 (STORAGE_BACKEND=minio일 때) — DB정의서 v0.6
+    bucket = obj_key = None
+    try:
+        from core.storage import get_storage
+        st = get_storage()
+        if st.backend == "minio":
+            meta = st.put_bytes(f"case-files/{app_id}/{safe}", data)
+            bucket, obj_key = meta["bucket"], meta["obj_key"]
+    except Exception:
+        pass  # 스토리지 장애가 업로드 자체를 막지 않게 — 로컬 경로는 항상 보존
     add(app_id, kind or "추가 자료", safe, note=note, file_name=safe, file_path=path)
-    return {"ok": True, "file_name": safe}
+    if obj_key:
+        with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+            cur.execute("UPDATE case_file SET bucket=%s, obj_key=%s"
+                        " WHERE app_id=%s AND title=%s AND file_name=%s",
+                        (bucket, obj_key, app_id, safe, safe))
+            conn.commit()
+    return {"ok": True, "file_name": safe, "storage": "minio" if obj_key else "local"}
 
 
 def set_final(cf_id: int, is_final: bool) -> dict:
@@ -119,10 +135,16 @@ def get_file(cf_id: int) -> dict | None:
         return cur.fetchone()
 
 
+# 구조화 출력 스키마(260730): {"notes": {"<자료 제목>": "<한 줄 요약>"}}
+NOTES_SCHEMA = {"type": "object",
+                "properties": {"notes": {"type": "object",
+                                         "additionalProperties": {"type": "string"}}},
+                "required": ["notes"]}
+
+
 def ai_notes(app_id: int, llm) -> dict:
     """자료별 한 줄 AI 요약 — '무엇을 확인하는 자료이고 왜 필요한지' (note 빈 행만 채움).
     사실 생성 금지: 목록·사건 요약에 있는 정보만 사용, 위치(원문 행)는 명시된 경우만."""
-    from services.ocr_normalize import _parse_json
     files = list_files(app_id)
     targets = [f for f in files if not (f.get("note") or "").strip()]
     if not targets:
@@ -139,10 +161,15 @@ def ai_notes(app_id: int, llm) -> dict:
                f"신청상이: {dis_txt}\n"
                f"경위: {(app.get('apply_story') or '')[:200]}")
     flist = "\n".join(f"- [{f['kind']}] {f['title']}" for f in targets)
-    text = llm.generate("file_notes", case_summary=summary, files=flist)
-    if text.startswith("[MOCK"):
-        return {"error": "생성 LLM 미연결(mock 모드) — FabriX/Ollama 연동 시 자동 요약됩니다"}
-    parsed = _parse_json(text) or {}
+    try:
+        # 구조화 출력(260730): json_schema 강제 디코딩 — 코드펜스·잡설로 인한 파싱 실패 제거
+        parsed = llm.generate_json("file_notes", NOTES_SCHEMA,
+                                   case_summary=summary, files=flist)
+    except ValueError:
+        # JSON 미산출 — Mock([MOCK] 문자열)은 안내, 실 LLM 불량 응답은 기존처럼 무갱신 진행
+        if type(llm).__name__ == "MockLLM":
+            return {"error": "생성 LLM 미연결(mock 모드) — FabriX/Ollama 연동 시 자동 요약됩니다"}
+        parsed = {}
     notes = parsed.get("notes") or {}
     updated = 0
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
