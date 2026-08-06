@@ -24,15 +24,9 @@ def _render_context(graph_ctx: str, hits: list[dict]) -> str:
     return graph_ctx + context if graph_ctx else context
 
 
-def answer(question: str, llm: LLMClient, emb, doc_type: str | None = None,
-           history: list[dict] | None = None) -> dict:
-    """emb: ingestion.embedder.get_embedder() 반환 객체 (encode 메서드).
-    doc_type: 지정 시 해당 문서군만 검색 (예: UI 업로드분 'ui_upload').
-    history: [{"role": "user"|"ai", "text": ...}] 최근 대화 - 프롬프트에만 주입(검색엔 미사용).
-
-    v0.2 반복 검색: 답변이 "확인되지 않습니다"면 질의를 재작성해 재검색하고,
-    새 근거가 나온 경우에만 재생성한다 (최대 CHAT_RETRY_MAX회). 인사말 등
-    근거가 필요 없는 응대는 이 표지를 포함하지 않으므로 재시도가 걸리지 않는다."""
+def initial_search(question: str, emb, doc_type: str | None = None):
+    """1차 검색 + 결정적 컨텍스트(조문 보강·판단기준 룰그래프) 조립.
+    plain 루프와 LangGraph 노드가 공유하는 빌딩블록 — 동작은 기존과 동일."""
     hits = hybrid_search(question, emb.encode([question])[0], doc_type=doc_type)
     # 조문 질의('예우법 4-1-6' 류) 결정적 보강 (core/clauses.py):
     # ① 법령 문서군 검색을 추가로 돌려 법령 원문 청크를 최우선 주입 - 매뉴얼·사례
@@ -56,41 +50,79 @@ def answer(question: str, llm: LLMClient, emb, doc_type: str | None = None,
             graph_ctx += "[판단기준 그래프 — 정형화틀 v2.4]\n" + "\n".join(facts) + "\n---\n"
     except Exception:
         pass  # 그래프 미적재 환경에서도 챗봇은 동작
-    # 그래프 RAG (core/graph_rag.py): 질의 엔티티(인명·질환·KCD)를 지식그래프에서
-    # 다중홉 확장 — 벡터 검색이 못 잡는 관계 질의(누가·몇 건·필요서류)를 결정적 보강.
-    try:
-        from core.graph_rag import graph_facts
-        gf = graph_facts(question)
-        if gf["facts"]:
-            graph_ctx += "[지식그래프 — 실데이터 연결]\n" + "\n".join(gf["facts"]) + "\n---\n"
-    except Exception:
-        pass
-    hist = "\n".join(
+    # 실데이터 지식그래프(graph_rag) 경로는 제거(260806) — 구축·유지 비용 대비 효과가 낮아
+    # pgvector 하이브리드(위 hybrid_search: 벡터+tsvector RRF)로 일원화. 관계형 질의는
+    # 유사사례 구조화 필터(KCD·심의유형·심사구분, services/similar_case.py)가 담당.
+    return hits, graph_ctx
+
+
+def fmt_history(history: list[dict] | None) -> str:
+    return "\n".join(
         f"{'담당자' if m.get('role') == 'user' else 'AI'}: {str(m.get('text', ''))[:300]}"
         for m in (history or [])[-6:]) or "(없음)"
-    text = llm.generate("chatbot", context=_render_context(graph_ctx, hits),
+
+
+def generate_answer(llm: LLMClient, question: str, graph_ctx: str, hits: list, hist: str) -> str:
+    return llm.generate("chatbot", context=_render_context(graph_ctx, hits),
                         question=question, history=hist)
+
+
+def rewrite_query(llm: LLMClient, prev_query: str, hits: list, tried: list[str]) -> str | None:
+    """재검색 질의 산출 — 1순위: 조문 축약의 결정적 확장(법령명 매핑은 LLM 환각 불허,
+    core/clauses.py), 폴백: LLM 재작성(동의어 보강). 새 질의가 없으면 None."""
+    from core.clauses import expand_clauses
+    rq = expand_clauses(prev_query)
+    if rq in tried:   # 축약 표기가 없거나 이미 시도 - LLM 재작성 폴백
+        try:
+            rq = llm.generate("query_rewrite", question=prev_query,
+                              context=_render_context("", hits)).strip().splitlines()[0][:200]
+        except Exception:
+            return None  # 재작성 실패는 1차 답변으로 응대 (재시도는 부가 기능)
+    return rq if rq and rq not in tried else None
+
+
+def merge_hits(new_hits: list, hits: list) -> list | None:
+    """재검색 결과 병합 — 새 근거가 없으면 None(재생성 불필요)."""
+    seen = {h["chunk_id"] for h in hits}
+    if not any(h["chunk_id"] not in seen for h in new_hits):
+        return None
+    return (new_hits + [h for h in hits if h["chunk_id"]
+                        not in {x["chunk_id"] for x in new_hits}])[:TOP_K * 2]
+
+
+def answer(question: str, llm: LLMClient, emb, doc_type: str | None = None,
+           history: list[dict] | None = None) -> dict:
+    """emb: ingestion.embedder.get_embedder() 반환 객체 (encode 메서드).
+    doc_type: 지정 시 해당 문서군만 검색 (예: UI 업로드분 'ui_upload').
+    history: [{"role": "user"|"ai", "text": ...}] 최근 대화 - 프롬프트에만 주입(검색엔 미사용).
+
+    v0.2 반복 검색: 답변이 "확인되지 않습니다"면 질의를 재작성해 재검색하고,
+    새 근거가 나온 경우에만 재생성한다 (최대 CHAT_RETRY_MAX회). 인사말 등
+    근거가 필요 없는 응대는 이 표지를 포함하지 않으므로 재시도가 걸리지 않는다.
+
+    ORCH_BACKEND=langgraph면 동일 로직을 LangGraph 그래프로 실행(orchestration/chat_graph.py)
+    — langgraph 미반입 환경은 자동으로 이 절차식(plain) 경로로 폴백."""
+    from config.settings import ORCH_BACKEND
+    if ORCH_BACKEND == "langgraph":
+        try:
+            from orchestration.chat_graph import run_chat_graph
+            return run_chat_graph(question, llm, emb, doc_type=doc_type, history=history)
+        except ImportError:
+            pass  # langgraph 미반입 — plain 폴백
+    hits, graph_ctx = initial_search(question, emb, doc_type)
+    hist = fmt_history(history)
+    text = generate_answer(llm, question, graph_ctx, hits, hist)
     retried, queries = 0, [question]
     while retried < CHAT_RETRY_MAX and _NO_EVIDENCE in text:
-        # 1순위: 조문 축약의 결정적 확장 (법령명 매핑은 LLM 환각 불허 - core/clauses.py)
-        rq = expand_clauses(queries[-1])
-        if rq in queries:   # 축약 표기가 없거나 이미 시도 - LLM 재작성 폴백 (동의어 보강)
-            try:
-                rq = llm.generate("query_rewrite", question=queries[-1],
-                                  context=_render_context("", hits)).strip().splitlines()[0][:200]
-            except Exception:
-                break  # 재작성 실패는 1차 답변으로 응대 (재시도는 부가 기능)
-        if not rq or rq in queries:
+        rq = rewrite_query(llm, queries[-1], hits, queries)
+        if not rq:
             break
         queries.append(rq)
-        new_hits = hybrid_search(rq, emb.encode([rq])[0], doc_type=doc_type)
-        seen = {h["chunk_id"] for h in hits}
-        if not any(h["chunk_id"] not in seen for h in new_hits):
+        merged = merge_hits(hybrid_search(rq, emb.encode([rq])[0], doc_type=doc_type), hits)
+        if merged is None:
             break  # 재검색이 새 근거를 못 찾음 - 재생성해도 결과 동일
-        hits = (new_hits + [h for h in hits if h["chunk_id"]
-                            not in {x["chunk_id"] for x in new_hits}])[:TOP_K * 2]
-        text = llm.generate("chatbot", context=_render_context(graph_ctx, hits),
-                            question=question, history=hist)
+        hits = merged
+        text = generate_answer(llm, question, graph_ctx, hits, hist)
         retried += 1
     return {"answer": text, "sources": hits,
             "retried": retried, "rewritten_query": queries[-1] if retried else None}

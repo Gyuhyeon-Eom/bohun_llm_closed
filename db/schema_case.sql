@@ -357,3 +357,60 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;         -- �
 
 -- 자료 우선순위 (260725 — 드래그 정렬, 초안 생성 시 상위 자료 우선 인용)
 ALTER TABLE case_file ADD COLUMN IF NOT EXISTS sort_order INT;
+
+-- ── 객체 스토리지 (DB정의서 v0.6 — 원본=MinIO, 페이지 상태 관리) ──
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS bucket  TEXT;   -- MinIO 버킷 (local이면 NULL)
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS obj_key TEXT;   -- 객체 키 — presigned 발급용
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS bucket  TEXT;
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS obj_key TEXT;
+
+-- 원본객체페이지 (09b): 페이지 단위 열람·처리상태. presigned URL은 만료형이라 저장하지 않는다.
+CREATE TABLE IF NOT EXISTS file_page (
+  fp_id      BIGSERIAL PRIMARY KEY,
+  sd_id      BIGINT NOT NULL,               -- scan_doc 연결
+  page_no    INT NOT NULL,                  -- 1-base
+  txt_layer  BOOLEAN,                       -- 텍스트층 존재(Y면 OCR 생략 페이지)
+  ocr_done   BOOLEAN DEFAULT false,         -- OCR/VLM 텍스트 산출 여부
+  reviewed   BOOLEAN DEFAULT false,         -- 사람 검수 완료
+  applied    BOOLEAN DEFAULT false,         -- 업무테이블 반영 완료
+  confidence NUMERIC(5,2),                  -- 페이지 평균 신뢰도(%) — VLM은 기계검사 파생값
+  preview_key TEXT,                         -- 썸네일 객체 키(선택)
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(sd_id, page_no)
+);
+CREATE INDEX IF NOT EXISTS idx_file_page_pending ON file_page(sd_id) WHERE ocr_done = false;
+
+-- LLM 응답 캐시 (260730): 동일 프롬프트 재호출 방지 — API 토큰 과금 절감·결정성.
+-- 키 = sha256(백엔드|모델|프롬프트명|프롬프트버전|프롬프트) — 내용이 바뀌면 키도 바뀐다.
+CREATE TABLE IF NOT EXISTS llm_cache (
+  cache_key  CHAR(64) PRIMARY KEY,
+  prompt_name TEXT,                          -- 관측용 (어떤 기능의 캐시인지)
+  response   TEXT,
+  hits       INT DEFAULT 0,                  -- 절감 효과 측정
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 39 연계처리 [TB_LINK_PRCS] (명세 v0.9): 통합보훈 연계 작업 큐 — 안건당 1행 갱신.
+-- 작업 이력(작업당 1행 누적)은 12b_AI처리작업 몫 — 역할 분리. 픽업은 FOR UPDATE SKIP LOCKED.
+CREATE TABLE IF NOT EXISTS link_prcs (
+  link_id      BIGSERIAL PRIMARY KEY,
+  src_case_key TEXT NOT NULL UNIQUE,         -- 원천안건키 — 폴링 재적재는 ON CONFLICT DO NOTHING
+  step_cd      TEXT NOT NULL DEFAULT '수집', -- 처리단계: 수집/VLM추출/임베딩/초안생성/전송/완료 (실패 단계부터 재개)
+  stat_cd      TEXT NOT NULL DEFAULT '대기', -- 처리상태: 대기/처리중/완료/실패
+  retry_cnt    INT  NOT NULL DEFAULT 0,
+  app_id       BIGINT,                       -- 수집·변환 후 내부 안건(application) 매핑
+  payload      JSONB,                        -- 단계 간 인계물(files·sd_ids 등)
+  err_msg      TEXT,
+  created_at   TIMESTAMPTZ DEFAULT now(),
+  updated_at   TIMESTAMPTZ DEFAULT now()     -- 좀비 회수 기준: 처리중 AND updated_at < N분 전
+);
+CREATE INDEX IF NOT EXISTS idx_link_prcs_pick ON link_prcs(stat_cd, link_id);
+
+-- 01 신청로그 + 원천안건키 (v0.9): 통합보훈 원천 식별자 — 수집 매핑·초안 전송 시 대상 식별
+ALTER TABLE application ADD COLUMN IF NOT EXISTS src_case_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_application_src_key ON application(src_case_key)
+  WHERE src_case_key IS NOT NULL;
+
+-- 10 문서추출 (v0.9 — 구 OCR추출 개명): 추출모델명·판독불가JSON
+ALTER TABLE file_page ADD COLUMN IF NOT EXISTS extract_model TEXT;      -- 추출모델명 (VLM 모델 표기)
+ALTER TABLE file_page ADD COLUMN IF NOT EXISTS unreadable_json JSONB;   -- 판독불가JSON ({"count": n})

@@ -81,17 +81,11 @@ export PG_DSN_RO="postgresql://bohun_ro:<실암호>@localhost:5432/bohun"
 # 데이터 적재 후 (스캔 txt 업로드 + scripts/to_grade_all.py):
 python3 db/build_graph.py            # ① 심의체계 레이어 (kg 전체 재생성)
 python3 scripts/build_rule_graph.py  # ② 판단기준룰 레이어 (judgment_rule 필요 — seed_judgment_rules.py)
-python3 db/build_instance_graph.py   # ③ 실데이터 인스턴스 레이어
-
-# 검증 (LLM 불필요):
-python3 tests/test_graph_rag.py      # 회귀 테스트 (그래프 미적재 시 통합부 SKIP)
-python3 scripts/demo_graph_rag.py    # 체감 데모 — 내장 질의 6종
-python3 scripts/demo_graph_rag.py --chat "정기조 등급은?"   # LLM까지 전체 파이프라인
-# 웹: GET /graph-rag?q=허혈성심장질환 대상자 몇 명   (챗봇 주입 컨텍스트 그대로 확인)
 ```
 
-주의: `build_graph.py`가 kg 테이블 전체를 TRUNCATE 하므로 ①→②→③ 순서 고정.
-스캔 데이터를 새로 적재·변환했으면 ③만 다시 실행하면 된다 (멱등).
+주의: `build_graph.py`가 kg 테이블 전체를 TRUNCATE 하므로 ①→② 순서 고정.
+실데이터 인스턴스 레이어(그래프 RAG)는 260806 제거 — 검색은 pgvector 하이브리드
+(벡터+tsvector RRF + 유사사례 구조화 필터)로 일원화.
 
 ## 5. 실측 (핵심 단계)
 

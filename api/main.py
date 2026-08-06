@@ -8,7 +8,7 @@ import json as _json
 import os
 import tempfile, threading, time
 from pathlib import Path
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from ingestion.types import Block, BlockType
@@ -16,7 +16,7 @@ from ingestion.verifier import verify_blocks
 from ingestion.chunker import chunk_blocks
 from ingestion.indexer import index_document
 from core.llm_client import RuleCorrectLLM
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from core.llm_client import get_llm
 from ingestion.embedder import get_embedder
 from services import chatbot, similar_case, review_doc, stats, decision_doc, grade_predict
@@ -42,11 +42,85 @@ async def _no_stale_assets(request, call_next):
 _emb = get_embedder()
 
 
+# ── API 명세 v0.2 계약 별칭 (260803): ID는 DB정의서 v0.6 영문명·string 계약 ──
+#   응답: 프로토타입 키(app_id 등)를 유지하면서 v0.6 키(aply_log_sn 등)를 string으로 병행 수록
+#   요청: 바디의 v0.6 키를 pydantic 별칭으로 수용 (아래 각 모델 Field 참조)
+_ID_ALIAS = {"app_id": "aply_log_sn", "dis_id": "wnd_sn", "ga_id": "grd_srng_sn",
+             "sd_id": "orgtxt_dcmnt_sn", "cf_id": "orgtxt_dcmnt_sn",
+             "cs_id": "chbt_sshn_sn", "session_id": "chbt_sshn_sn",
+             "fb_id": "fdbk_sn", "parent_id": "up_sn", "case_id": "case_sn",
+             "doc_id": "crps_doc_sn", "fe_id": "mdfcn_hstry_sn"}
+
+
+def _add_id_aliases(obj):
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            _add_id_aliases(obj[k])
+            a = _ID_ALIAS.get(k)
+            if a and a not in obj:
+                v = obj[k]
+                obj[a] = str(v) if isinstance(v, (int, float)) else v
+    elif isinstance(obj, list):
+        for it in obj:
+            _add_id_aliases(it)
+
+
+# 계약 API(명세 v0.7 — AI/LLM 처리)의 응답 봉투: {success, message, data} + 레거시 키 병행
+import re as _re2
+
+_ENVELOPE_RE = _re2.compile(
+    r"^/(chatbot$|grade-predict$"
+    r"|scan-docs/(upload$|\d+/(normalize|normalize-clear|index-clean|to-case|to-grade)$)"
+    r"|decision-doc/\d+/(draft|judge)$"
+    r"|grade-agendas/\d+/(draft|export)$"
+    r"|cases/\d+/(similar$|similar-reasons$|files/ai-notes$))")
+
+
+def _envelope(j):
+    """success/message/data 봉투 — data가 정식 계약, 최상위 병행 키는 구화면 호환용."""
+    if isinstance(j, list):
+        return {"success": True, "message": "정상 처리되었습니다", "data": j}
+    if isinstance(j, dict):
+        ok = "error" not in j
+        payload = {k: v for k, v in j.items() if k != "error"}
+        return {"success": ok,
+                "message": j.get("error") or "정상 처리되었습니다",
+                "data": payload, **j}
+    return j
+
+
+@app.middleware("http")
+async def _contract_id_aliases(request, call_next):
+    resp = await call_next(request)
+    if not resp.headers.get("content-type", "").startswith("application/json"):
+        return resp
+    body = b"".join([chunk async for chunk in resp.body_iterator])
+    try:
+        data = _json.loads(body)
+        _add_id_aliases(data)
+        if _ENVELOPE_RE.match(request.url.path):
+            data = _envelope(data)
+        body = _json.dumps(data, ensure_ascii=False, default=str).encode()
+    except Exception:
+        pass                            # JSON 아니거나 변형 실패 — 원본 그대로
+    headers = dict(resp.headers)
+    headers.pop("content-length", None)
+    return Response(content=body, status_code=resp.status_code,
+                    headers=headers, media_type="application/json")
+
+
+# 요청 바디 ID는 각 모델에서 AliasChoices로 프로토타입 키·v0.6 키 둘 다 수용
+# (pydantic v2 lax 모드라 "7" 같은 string 값도 int로 자동 변환됨 — 계약과 호환)
+
+
 class Question(BaseModel):
     question: str
     only_uploaded: bool = False   # True면 UI로 넣은 문서만 검색
     history: list[dict] = []      # [{"role":"user"|"ai","text":...}] 최근 대화 (챗봇용)
-    session_id: int | None = None # 챗봇 세션 — None이면 첫 질문 시 새 세션 자동 생성
+    session_id: int | None = Field(None, validation_alias=AliasChoices("session_id", "chbt_sshn_sn"))
+    # 우측 영역 패널 컨텍스트 — "현재 안건: 2026-0101 …" 상태로 질의 (안건 요약을 문맥 주입)
+    app_id: int | None = Field(None, validation_alias=AliasChoices("app_id", "aply_log_sn"))
+    ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
     persist: bool = True          # False면 기록 저장 안 함 (AI 검토 패널 질의 등 일회성)
 
 
@@ -136,6 +210,37 @@ def api_load():
     return {"active": _active_chats}
 
 
+def _case_context(app_id: int | None, ga_id: int | None) -> str | None:
+    """우측 영역 '현재 안건' 문맥 — 챗봇 히스토리 선두에 주입할 안건 요약."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    try:
+        with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+            if app_id:
+                cur.execute("SELECT recv_no, applicant, duty_type, review_content"
+                            " FROM application WHERE app_id=%s", (app_id,))
+                a = cur.fetchone()
+                if not a:
+                    return None
+                cur.execute("SELECT name, body_side, kcd_code FROM disability"
+                            " WHERE app_id=%s", (app_id,))
+                dis = ", ".join(f"{d['name']}({d['body_side'] or '-'}·{d['kcd_code']})"
+                                for d in cur.fetchall())
+                return (f"[현재 안건] {a['recv_no']} {a['applicant']}({a['duty_type']})"
+                        f" · {a['review_content']} · 신청상이: {dis}")
+            if ga_id:
+                cur.execute("SELECT agenda_no, person, exam_kind FROM grade_agenda"
+                            " WHERE ga_id=%s", (ga_id,))
+                g = cur.fetchone()
+                if g:
+                    return (f"[현재 안건] 상이등급 {g['agenda_no']} {g['person']}"
+                            f" · {g.get('exam_kind') or ''}")
+    except Exception:
+        pass                           # 컨텍스트는 부가 정보 — 실패해도 질의는 진행
+    return None
+
+
 @app.post("/chatbot")                 # 기능② (성공 왕복은 세션 기록으로 저장)
 def api_chatbot(q: Question):
     global _active_chats
@@ -143,6 +248,9 @@ def api_chatbot(q: Question):
     with _load_lock:
         _active_chats += 1
     try:
+        ctx = _case_context(q.app_id, q.ga_id)
+        if ctx:
+            q.history = [{"role": "user", "text": ctx}] + (q.history or [])
         try:
             r = chatbot.answer(q.question, _llm, _emb,
                                doc_type="ui_upload" if q.only_uploaded else None,
@@ -213,8 +321,25 @@ def api_llm_status():
                 "detail": f"LLM 서버 응답 없음({base}) - ollama serve 실행 확인"}
 
 
-@app.get("/cases")                    # 안건 목록 (사건 스키마: application)
-def api_cases():
+def _paginate(rows: list, order: str | None, page: int | None, per_page: int | None,
+              response=None) -> list:
+    """목록 공통 정렬·페이징 (API 명세 v0.2) — 전체 건수는 X-Total-Count 헤더."""
+    if order == "desc":
+        rows = list(reversed(rows))
+    if response is not None:
+        response.headers["X-Total-Count"] = str(len(rows))
+    if per_page:
+        page = page or 1
+        rows = rows[(page - 1) * per_page: page * per_page]
+    return rows
+
+
+@app.get("/cases")                    # 안건 목록 (사건 스키마: application) — 명세 v0.2 검색·페이징
+def api_cases(response: Response = None, search_text: str | None = None,
+              status: str | None = None, subcommittee: str | None = None,
+              apply_kind: str | None = None, step: str | None = None,
+              order: str | None = None, page: int | None = None,
+              per_page: int | None = None):
     import psycopg
     from psycopg.rows import dict_row
     from config.settings import PG_DSN
@@ -245,7 +370,45 @@ def api_cases():
             r["step"] = "작성"
         else:
             r["step"] = "접수"
-    return rows
+    # 검색·필터 (명세 v0.2 — 소량 데이터라 파이썬 후처리로 충분, 운용 전환 시 SQL화)
+    if search_text:
+        t = search_text.strip()
+        rows = [r for r in rows if any(t in str(r.get(k) or "") for k in
+                ("recv_no", "agenda_no", "applicant")) or
+                any(t in (d or "") for d in (r.get("dis_names") or []))]
+    for key, val in (("status", status), ("subcommittee", subcommittee),
+                     ("apply_kind", apply_kind), ("step", step)):
+        if val:
+            rows = [r for r in rows if str(r.get(key) or "") == val]
+    return _paginate(rows, order, page, per_page, response)
+
+
+@app.get("/cases/{app_id}")           # 안건 상세 (화면설계 BNM-U00-0100 — 인적사항+신청상이+진행)
+def api_case_detail(app_id: int):
+    """안건 단건 조회 — 명세 v0.3 신설. 목록 없이 안건 ID(aply_log_sn)로 직접 진입."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM application WHERE app_id=%s", (app_id,))
+        app_row = cur.fetchone()
+        if not app_row:
+            return {"error": "안건 없음"}
+        cur.execute("SELECT * FROM disability WHERE app_id=%s ORDER BY dis_id", (app_id,))
+        diss = cur.fetchall()
+        cur.execute("""SELECT dis_id, round, yeu_result, bosang_result, status, decided_at
+                       FROM conclusion WHERE app_id=%s AND round=%s""",
+                    (app_id, app_row.get("round")))
+        concl = {c["dis_id"]: c for c in cur.fetchall()}
+        cur.execute("SELECT count(*) FROM case_draft WHERE app_id=%s"
+                    " AND content IS NOT NULL AND content<>''", (app_id,))
+        n_draft = cur.fetchone()["count"]
+    for d in diss:
+        d["conclusion"] = concl.get(d["dis_id"])
+    n_fixed = sum(1 for c in concl.values() if c["status"] == "확정")
+    step = ("확정" if diss and n_fixed >= len(diss) else
+            "판단" if concl else "작성" if n_draft else "접수")
+    return {**app_row, "disabilities": diss, "n_draft": n_draft, "step": step}
 
 
 @app.post("/cases/demo-seed")         # 정형화틀 기반 목데이터 6건 생성
@@ -258,13 +421,14 @@ def api_demo_seed():
 
 
 class JudgeReq(BaseModel):
-    dis_id: int
-    yeu_result: str                    # '해당' | '비해당'
+    # 명세 v0.8: 요청은 Y/N만 — 상이처 미지정 시 첫 상이처 (다상이 안건은 wnd_sn 지정)
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
+    yeu_result: str                    # 'Y'|'N' (해당|비해당 호환)
     bosang_result: str
 
 
 class FinalizeReq(BaseModel):
-    dis_id: int
+    dis_id: int = Field(validation_alias=AliasChoices("dis_id", "wnd_sn"))
     body_text: str | None = None       # 담당자 수정본
 
 
@@ -319,9 +483,65 @@ def api_decision_export_split(app_id: int, fmt: str = "txt"):
     return FileResponse(path, filename=fname, media_type="application/zip")
 
 
+def _yn(v: str) -> str:
+    """판단값 정규화 — 자바 백단은 Y/N 코드로 보냄 (DB에 있는 상세는 LLM 서버가 직접 조회)."""
+    return {"Y": "해당", "N": "비해당", "y": "해당", "n": "비해당"}.get(v, v)
+
+
+@app.post("/decision-doc/{app_id}/draft")     # AI 심의의결서 초안 생성 (화면설계 S3-① — 전체 란)
+def api_decision_draft(app_id: int):
+    """요청은 안건 ID만 — LLM 서버가 DB에서 자료를 읽어 s1~s3 란 초안을 생성·저장."""
+    from services import case_draft
+    from core.llm_client import LLMUnavailable
+    sections, errors = [], []
+    for section in ("s1", "s2", "s3"):
+        try:
+            r = case_draft.generate(app_id, section, get_llm(), _emb)
+            if "error" in r:
+                errors.append(f"{section}: {r['error']}")
+            else:
+                sections.append({"section": section, "content": r.get("content")})
+        except LLMUnavailable as e:
+            return {"error": str(e)}
+        except Exception as e:
+            errors.append(f"{section}: {e}")
+    if not sections:
+        return {"error": "; ".join(errors) or "초안 생성 실패"}
+    # 관련자료 + 한줄요약 (명세 v0.9 — sections[].files): 안건 자료함에서 최종 자료 우선
+    from services import case_file
+    try:
+        case_file.ai_notes(app_id, _llm)       # note 빈 행 한줄요약 생성 (mock이면 무시)
+    except Exception:
+        pass
+    try:
+        files = [{"file_id": str(f["cf_id"]), "filename": f["file_name"] or f["title"],
+                  "page_no": None, "summary": (f.get("note") or "").removeprefix("[AI] ") or None}
+                 for f in case_file.list_files(app_id)[:5]]
+    except Exception:
+        files = []
+    for s in sections:
+        s["files"] = files
+    out = {"aply_log_sn": str(app_id), "sections": sections}
+    if errors:
+        out["partial"] = errors
+    return out
+
+
 @app.post("/decision-doc/{app_id}/judge")     # 이원 판단 선택 -> LLM 판단내용 생성·저장
 def api_judge(app_id: int, req: JudgeReq):
-    return decision_doc.draft_judgment(app_id, req.dis_id, req.yeu_result, req.bosang_result, _llm, _emb)
+    dis_id = req.dis_id
+    if dis_id is None:                 # 명세 v0.8 최소 요청 — 첫 상이처 기본
+        import psycopg
+        from config.settings import PG_DSN
+        with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+            cur.execute("SELECT dis_id FROM disability WHERE app_id=%s ORDER BY dis_id LIMIT 1",
+                        (app_id,))
+            row = cur.fetchone()
+        if not row:
+            return {"error": "안건에 상이처 없음"}
+        dis_id = row[0]
+    return decision_doc.draft_judgment(app_id, dis_id, _yn(req.yeu_result),
+                                       _yn(req.bosang_result), _llm, _emb)
 
 
 @app.post("/decision-doc/{app_id}/finalize")  # 담당자 수정 반영 + 확정
@@ -349,16 +569,17 @@ def api_dashboard():
 
 
 class GradePredictReq(BaseModel):
-    disease_name: str
+    # 안건 ID만 보내면 상이명·부위는 DB(grade_agenda.injury_items)에서 조회 — 자바 백단 최소 요청
+    disease_name: str | None = None
     body_part: str | None = None
     n: int = 5
-    ga_id: int | None = None   # 담당자 유사사례 선별 반영용
+    ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
 
 
 class CaseFileReq(BaseModel):
     kind: str = "추가 자료"
     title: str
-    dis_id: int | None = None
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
     note: str | None = None
 
 
@@ -388,6 +609,70 @@ def api_case_file_reorder(app_id: int, req: ReorderReq):
 def api_case_file_ai_notes(app_id: int):
     from services import case_file
     return case_file.ai_notes(app_id, _llm)
+
+
+@app.get("/cases/{app_id}/similar")           # 안건 기준 유사사례 (우측 영역 — 유사사례 검색 탭)
+def api_case_similar(app_id: int, n: int = 5):
+    """안건 요약 임베딩으로 과거사례 검색 — 유사도(score)·사유(reason) 포함."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    from services.similar_case import find_similar
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT review_content, apply_story FROM application WHERE app_id=%s",
+                    (app_id,))
+        a = cur.fetchone()
+        if not a:
+            return {"error": "안건 없음"}
+        cur.execute("SELECT name, body_side, kcd_code FROM disability WHERE app_id=%s", (app_id,))
+        dis = cur.fetchall()
+        cur.execute("SELECT case_id, reason FROM sim_reason WHERE app_id=%s", (app_id,))
+        reasons = {r["case_id"]: r["reason"] for r in cur.fetchall()}
+    summary = (f"{a['review_content']} · "
+               + ", ".join(f"{d['name']}({d['body_side'] or '-'})" for d in dis)
+               + f" · {(a['apply_story'] or '')[:200]}")
+    kcds = [d["kcd_code"] for d in dis if d["kcd_code"]]
+    rows = find_similar(_emb.encode([summary])[0], kcd_codes=kcds or None, n=n)
+    for r in rows:
+        r["reason"] = reasons.get(r["case_id"])
+    return rows
+
+
+@app.get("/cases/{app_id}/history")           # 통합 작성이력 (우측 영역 — 작성이력 탭)
+def api_case_history(app_id: int, limit: int = 50):
+    """요건 의결서·상세 수정·확정·연계 상이등급 이벤트를 시간 역순 타임라인으로 통합."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    events = []
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT section, source, updated_at FROM case_draft"
+                    " WHERE app_id=%s AND content IS NOT NULL AND content<>''", (app_id,))
+        titles = {"s1": "요건사실", "s2": "경위", "s3": "의학적 소견"}
+        for r in cur.fetchall():
+            events.append({"at": r["updated_at"], "area": "요건심사 심의 의결서",
+                           "event": f"'{titles.get(r['section'], r['section'])}' 란 "
+                                    + ("초안 생성" if r["source"] == "llm" else "수정 저장"),
+                           "actor": "AI" if r["source"] == "llm" else "담당자"})
+        cur.execute("SELECT field, editor, created_at FROM field_edit WHERE app_id=%s", (app_id,))
+        for r in cur.fetchall():
+            events.append({"at": r["created_at"], "area": "요건심사 상세",
+                           "event": f"'{r['field']}' 항목 수정", "actor": r["editor"]})
+        cur.execute("SELECT dis_id, status, decided_at FROM conclusion"
+                    " WHERE app_id=%s AND decided_at IS NOT NULL", (app_id,))
+        for r in cur.fetchall():
+            events.append({"at": r["decided_at"], "area": "요건심사 심의 의결서",
+                           "event": f"종합판단 {r['status']}", "actor": "담당자",
+                           "dis_id": r["dis_id"]})
+        cur.execute("""SELECT gl.step, gl.event, gl.actor, gl.created_at
+                       FROM grade_log gl JOIN scan_doc sd ON sd.ga_id = gl.ga_id
+                       WHERE sd.app_id=%s""", (app_id,))
+        for r in cur.fetchall():
+            events.append({"at": r["created_at"], "area": "상이등급심사",
+                           "event": f"[{r['step']}] {r['event']}", "actor": r["actor"]})
+    events = [e for e in events if e["at"] is not None]
+    events.sort(key=lambda e: e["at"], reverse=True)
+    return events[:limit]
 
 
 @app.post("/cases/{app_id}/similar-reasons")  # 유사사례 'AI 왜 유사한지' 요약 생성·캐시
@@ -443,6 +728,24 @@ def api_case_draft_generate(app_id: int, section: str):
         return {"error": str(e)}
 
 
+class DraftSaveAllReq(BaseModel):
+    sections: dict                     # {"s1": "본문", "s2": "...", "s3": "..."} — 있는 란만
+    editor: str = "담당자"
+
+
+@app.post("/case-draft/{app_id}/save-all")  # 전체 심의의결서 저장 (화면설계 S4-③)
+def api_case_draft_save_all(app_id: int, req: DraftSaveAllReq):
+    from services import case_draft
+    saved, errors = [], []
+    for section, content in req.sections.items():
+        r = case_draft.save(app_id, section, content or "", req.editor)
+        (errors if "error" in r else saved).append(section)
+    out = {"ok": not errors, "saved": saved}
+    if errors:
+        out["error"] = f"저장 실패 란: {', '.join(errors)} (section=s1|s2|s3)"
+    return out
+
+
 @app.post("/case-draft/{app_id}/{section}/save")        # 담당자 수정 저장 (교정쌍 축적)
 def api_case_draft_save(app_id: int, section: str, req: DraftSaveReq):
     from services import case_draft
@@ -478,7 +781,7 @@ def api_export_assembled(app_id: int, fmt: str = "txt"):
 class FieldEditReq(BaseModel):
     field: str
     value: str
-    dis_id: int | None = None
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
     editor: str = "담당자"
 
 
@@ -533,11 +836,11 @@ def api_field_edits(app_id: int):
 
 class SimilarPickReq(BaseModel):
     scope: str                 # case | grade
-    case_id: int
+    case_id: int = Field(validation_alias=AliasChoices("case_id", "case_sn", "trgt_case_sn"))
     kind: str                  # exclude | pin | clear
-    app_id: int | None = None
-    dis_id: int | None = None
-    ga_id: int | None = None
+    app_id: int | None = Field(None, validation_alias=AliasChoices("app_id", "aply_log_sn"))
+    dis_id: int | None = Field(None, validation_alias=AliasChoices("dis_id", "wnd_sn"))
+    ga_id: int | None = Field(None, validation_alias=AliasChoices("ga_id", "grd_srng_sn"))
     weight: float = 1.0
     note: str | None = None
 
@@ -574,14 +877,25 @@ def api_cases_search(q: str, n: int = 10):
     return similar_pick.search_cases(q, n)
 
 
-@app.get("/grade-agendas")            # 상이등급심사 안건 목록 (화면 v0.4)
-def api_grade_agendas():
+@app.get("/grade-agendas")            # 상이등급심사 안건 목록 (화면 v0.4) — 명세 v0.2 검색·페이징
+def api_grade_agendas(response: Response = None, search_text: str | None = None,
+                      progress: str | None = None, order: str | None = None,
+                      page: int | None = None, per_page: int | None = None):
+    import json as _j
     import psycopg
     from psycopg.rows import dict_row
     from config.settings import PG_DSN
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("SELECT * FROM grade_agenda ORDER BY ga_id")
-        return cur.fetchall()
+        rows = cur.fetchall()
+    if search_text:
+        t = search_text.strip()
+        rows = [r for r in rows if t in str(r.get("agenda_no") or "")
+                or t in str(r.get("person") or "")
+                or t in _j.dumps(r.get("injury_items") or [], ensure_ascii=False)]
+    if progress:
+        rows = [r for r in rows if str(r.get("progress") or "") == progress]
+    return _paginate(rows, order, page, per_page, response)
 
 
 @app.get("/grade-agendas/export-batch")  # 선택 안건 심사표 일괄 zip (ids=1,2,3) — {ga_id} 라우트보다 먼저 선언
@@ -612,7 +926,24 @@ def api_grade_agenda(ga_id: int):
 
 @app.post("/grade-predict")           # AI 판정예측 (과거 등급사례 기반 참고 예측)
 def api_grade_predict(req: GradePredictReq):
-    return grade_predict.predict(req.disease_name, req.body_part, _emb, req.n, req.ga_id)
+    disease, body = req.disease_name, req.body_part
+    if not disease and req.ga_id:      # ID만 받은 요청 — 상이명은 DB에서 (자바 백단 최소 요청)
+        import psycopg
+        from psycopg.rows import dict_row
+        from config.settings import PG_DSN
+        from services.grade_export import _items
+        with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM grade_agenda WHERE ga_id=%s", (req.ga_id,))
+            ag = cur.fetchone()
+        if not ag:
+            return {"error": "안건 없음"}
+        items = _items(dict(ag))
+        if not items or not items[0].get("injury"):
+            return {"error": "심사표에 상이처가 없음 — disease_name을 직접 지정하세요"}
+        disease, body = items[0]["injury"], items[0].get("body_part")
+    if not disease:
+        return {"error": "disease_name 또는 grd_srng_sn 필요"}
+    return grade_predict.predict(disease, body, _emb, req.n, req.ga_id)
 
 
 @app.get("/grade-agendas/{ga_id}/log")   # 안건 작업로그 (DAG 노드·이벤트)
@@ -694,26 +1025,86 @@ def api_grade_log_add(ga_id: int, req: GradeLogReq):
     return {"ok": True}
 
 
-@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 xlsx 산출물 (확정 양식 14컬럼)
-def api_grade_export(ga_id: int):
+@app.post("/grade-agendas/{ga_id}/draft")   # 상이등급 AI 심의의결서 생성 (명세 v0.9 — S6-②)
+def api_grade_draft(ga_id: int):
+    """심사표 상이처별 제안등급·심사의견을 AI 판정예측으로 채워 저장 — 담당자 수정 전제."""
+    import json as _j
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    from services.grade_export import _items
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM grade_agenda WHERE ga_id=%s", (ga_id,))
+        ag = cur.fetchone()
+        if not ag:
+            return {"error": "안건 없음"}
+        items = _items(dict(ag))
+        if not items:
+            return {"error": "심사표에 상이처가 없음"}
+        filled = []
+        for it in items:
+            injury = (it.get("injury") or "").strip()
+            if injury and not (it.get("proposed_grade") and it.get("opinion")):
+                p = grade_predict.predict(injury, it.get("body_part"), _emb, 5, ga_id)
+                if p.get("grade1"):
+                    it.setdefault("proposed_grade", None)
+                    if not it.get("proposed_grade"):
+                        it["proposed_grade"] = p["grade1"]
+                    if not it.get("opinion"):
+                        it["opinion"] = p.get("rationale")
+            filled.append({k: it.get(k) for k in
+                           ("injury", "body_part", "exam_dept", "proposed_grade", "opinion")})
+        cur.execute("UPDATE grade_agenda SET injury_items=%s::jsonb, updated_at=now()"
+                    " WHERE ga_id=%s", (_j.dumps(items, ensure_ascii=False), ga_id))
+        cur.execute("INSERT INTO grade_log(ga_id, step, event, actor, detail, status)"
+                    " VALUES (%s,'검토','AI 심의의결서 작성','AI',%s,'done')",
+                    (ga_id, f"상이처 {len(filled)}건 제안등급·심사의견 생성"))
+        conn.commit()
+    return {"ga_id": str(ga_id), "items": filled,
+            "note": "AI 작성분은 참고용 — 확정은 담당자·심의 의결"}
+
+
+@app.get("/grade-agendas/{ga_id}/export")  # 상이등급 심사표 산출 — 기본 봉투 JSON+URL, dl=1 파일 스트림
+def api_grade_export(ga_id: int, dl: int = 0):
+    """명세 v0.10: 프론트는 파일 스트림 대신 봉투 JSON을 받는다(260803 프론트 요청).
+    기본 응답 = {success, message, data:{file_name, url, expires_s}} — url을 열면 다운로드.
+    dl=1은 그 url이 가리키는 실제 파일 스트림(브라우저 링크용, 프론트가 직접 파싱하지 않음)."""
+    import psycopg
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM grade_agenda WHERE ga_id=%s", (ga_id,))
+        if not cur.fetchone():
+            return {"error": "해당 등급 안건 없음"}
     from services import grade_export
     fname, path = grade_export.export_xlsx(ga_id, emb=_emb)
-    return FileResponse(path, filename=fname,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    if dl:
+        return FileResponse(path, filename=fname,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # 산출본 보관(스토리지) + grade_log 기록 — '이전 심사 기록 엑셀 확인' 메뉴의 원천
+    url, backend, expires = f"/grade-agendas/{ga_id}/export?dl=1", "local", None
+    try:
+        from core.storage import get_storage
+        st = get_storage()
+        key = f"exports/grade/{ga_id}/{fname}"
+        st.put_file(key, path)
+        if st.backend == "minio":
+            from config.settings import PRESIGNED_EXPIRES_S
+            url, backend, expires = st.presigned_url(key), "minio", PRESIGNED_EXPIRES_S
+    except Exception:
+        pass                      # 보관 실패해도 dl=1 즉석 생성 URL은 항상 유효
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO grade_log(ga_id, step, event, actor, detail, file_name, status)"
+                    " VALUES (%s,'산출','심사표 엑셀 산출','AI','심사표 xlsx 생성·보관',%s,'done')",
+                    (ga_id, fname))
+        conn.commit()
+    return {"ga_id": str(ga_id), "file_name": fname, "url": url,
+            "backend": backend, "expires_s": expires}
 
 
 @app.get("/rule-check/{app_id}")      # 분과 판단기준 자동대조 (정형화틀 v2.4, 결정적)
 def api_rule_check(app_id: int):
     from services import rule_check
     return rule_check.check(app_id)
-
-
-@app.get("/graph-rag")                # 그래프 RAG 사실 조회 (검증·디버그용 — LLM 미사용)
-def api_graph_rag(q: str):
-    """질의 → 엔티티 추출 → 그래프 다중홉 사실 라인. 챗봇 컨텍스트에 주입되는
-    것과 동일한 결과를 그대로 노출해, LLM 없이 그래프 품질을 검증할 수 있다."""
-    from core.graph_rag import graph_facts
-    return graph_facts(q)
 
 
 @app.get("/scan-docs")                # 스캔 의무기록 목록 (OCR 적재분)
@@ -773,8 +1164,15 @@ def api_scan_doc_file(sd_id: int, dl: int = 0):
     import psycopg
     from config.settings import PG_DSN
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
-        cur.execute("SELECT orig_path, file_name FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        cur.execute("SELECT orig_path, file_name, obj_key FROM scan_doc WHERE sd_id=%s", (sd_id,))
         row = cur.fetchone()
+    # MinIO 원본이면 presigned URL 302 — 브라우저 #page= 프래그먼트는 리다이렉트에도 유지됨
+    if row and row[2] and not dl:
+        from core.storage import get_storage
+        st = get_storage()
+        if st.backend == "minio" and st.exists(row[2]):
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(st.presigned_url(row[2]), status_code=302)
     if not row or not row[0] or not os.path.exists(row[0]):
         return {"error": "원본 파일 없음"}
     disp = "attachment" if dl else "inline"
@@ -782,6 +1180,59 @@ def api_scan_doc_file(sd_id: int, dl: int = 0):
              else "application/pdf")
     return FileResponse(row[0], filename=row[1], media_type=media,
                         content_disposition_type=disp)
+
+
+@app.get("/scan-docs/{sd_id}/url")    # 원본 열람 URL 발급 (minio=presigned, local=앱 경로)
+def api_scan_doc_url(sd_id: int, page: int = 0):
+    import psycopg
+    from config.settings import PG_DSN
+    from core.storage import get_storage
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT obj_key FROM scan_doc WHERE sd_id=%s", (sd_id,))
+        row = cur.fetchone()
+    st = get_storage()
+    if row and row[0] and st.backend == "minio" and st.exists(row[0]):
+        from config.settings import PRESIGNED_EXPIRES_S
+        return {"url": st.presigned_url(row[0], page or None), "backend": "minio",
+                "expires_s": PRESIGNED_EXPIRES_S}
+    frag = f"#page={page}" if page else ""
+    return {"url": f"/scan-docs/{sd_id}/file{frag}", "backend": "local", "expires_s": None}
+
+
+@app.get("/scan-docs/{sd_id}/pages")  # 페이지 처리상태 (file_page — 텍스트층/OCR/검수/반영)
+def api_scan_doc_pages(sd_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT page_no, txt_layer, ocr_done, reviewed, applied, confidence"
+                    " FROM file_page WHERE sd_id=%s ORDER BY page_no", (sd_id,))
+        return {"sd_id": sd_id, "pages": cur.fetchall()}
+
+
+class PageStateReq(BaseModel):
+    reviewed: bool | None = None
+    applied: bool | None = None
+
+
+@app.post("/scan-docs/{sd_id}/pages/{page_no}")  # 페이지 검수/반영 상태 갱신 (담당자)
+def api_scan_doc_page_update(sd_id: int, page_no: int, req: PageStateReq):
+    import psycopg
+    from config.settings import PG_DSN
+    sets, vals = [], []
+    if req.reviewed is not None:
+        sets.append("reviewed=%s"); vals.append(req.reviewed)
+    if req.applied is not None:
+        sets.append("applied=%s"); vals.append(req.applied)
+    if not sets:
+        return {"error": "갱신할 상태 없음"}
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute(f"UPDATE file_page SET {', '.join(sets)} WHERE sd_id=%s AND page_no=%s",
+                    (*vals, sd_id, page_no))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"error": "해당 페이지 없음"}
+    return {"ok": True, "sd_id": sd_id, "page_no": page_no}
 
 
 @app.post("/scan-docs/{sd_id}/to-case")   # 스캔 문서 → 요건심사 사건 변환 (HITL 전제)
@@ -891,7 +1342,7 @@ def api_grade_scan(ga_id: int):
 class FeedbackReq(BaseModel):
     author: str = "익명"
     content: str
-    parent_id: int | None = None
+    parent_id: int | None = Field(None, validation_alias=AliasChoices("parent_id", "up_sn"))
 
 
 @app.get("/feedback")                 # T/F 피드백 게시판: 글+답글 트리

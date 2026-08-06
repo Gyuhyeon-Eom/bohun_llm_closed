@@ -11,9 +11,10 @@ git pull로 코드를 받아도 DB 상태(판단기준 룰·그래프·게시판
 수행 내용:
   1. judgment_rule 재적재 (정형화틀 최종본 v2 — 27→36건)
   2. 판단기준 그래프(jr_*) 재구축
-  3. 온톨로지 인스턴스 레이어(person·disease·안건·스캔) 재구축 — 그래프 RAG용
-  4. (--clear-board) feedback 게시판 초기화 — 샘플 시드는 코드에서 이미 제거되어
+  3. (--clear-board) feedback 게시판 초기화 — 샘플 시드는 코드에서 이미 제거되어
      재시드로 되살아나지 않는다
+
+인스턴스 지식그래프(그래프 RAG)는 260806 제거 — 검색은 pgvector 하이브리드로 일원화.
 """
 import os
 import sys
@@ -37,6 +38,31 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS team_lead TEXT;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS dept_head TEXT;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS chief_member TEXT;
 ALTER TABLE case_file ADD COLUMN IF NOT EXISTS sort_order INT;
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS bucket  TEXT;
+ALTER TABLE scan_doc  ADD COLUMN IF NOT EXISTS obj_key TEXT;
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS bucket  TEXT;
+ALTER TABLE case_file ADD COLUMN IF NOT EXISTS obj_key TEXT;
+CREATE TABLE IF NOT EXISTS file_page (
+  fp_id      BIGSERIAL PRIMARY KEY,
+  sd_id      BIGINT NOT NULL,
+  page_no    INT NOT NULL,
+  txt_layer  BOOLEAN,
+  ocr_done   BOOLEAN DEFAULT false,
+  reviewed   BOOLEAN DEFAULT false,
+  applied    BOOLEAN DEFAULT false,
+  confidence NUMERIC(5,2),
+  preview_key TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(sd_id, page_no)
+);
+CREATE INDEX IF NOT EXISTS idx_file_page_pending ON file_page(sd_id) WHERE ocr_done = false;
+CREATE TABLE IF NOT EXISTS llm_cache (
+  cache_key  CHAR(64) PRIMARY KEY,
+  prompt_name TEXT,
+  response   TEXT,
+  hits       INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS sim_reason (
   sr_id      BIGSERIAL PRIMARY KEY,
   app_id     BIGINT NOT NULL,
@@ -46,6 +72,24 @@ CREATE TABLE IF NOT EXISTS sim_reason (
   created_at timestamptz DEFAULT now(),
   UNIQUE(app_id, dis_id, case_id)
 );
+CREATE TABLE IF NOT EXISTS link_prcs (
+  link_id      BIGSERIAL PRIMARY KEY,
+  src_case_key TEXT NOT NULL UNIQUE,
+  step_cd      TEXT NOT NULL DEFAULT '수집',
+  stat_cd      TEXT NOT NULL DEFAULT '대기',
+  retry_cnt    INT  NOT NULL DEFAULT 0,
+  app_id       BIGINT,
+  payload      JSONB,
+  err_msg      TEXT,
+  created_at   TIMESTAMPTZ DEFAULT now(),
+  updated_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_link_prcs_pick ON link_prcs(stat_cd, link_id);
+ALTER TABLE application ADD COLUMN IF NOT EXISTS src_case_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_application_src_key ON application(src_case_key)
+  WHERE src_case_key IS NOT NULL;
+ALTER TABLE file_page ADD COLUMN IF NOT EXISTS extract_model TEXT;
+ALTER TABLE file_page ADD COLUMN IF NOT EXISTS unreadable_json JSONB;
 """
 
 
@@ -68,15 +112,11 @@ def main():
     import scripts.build_rule_graph as brg
     brg.main()
 
-    print("③ 온톨로지 인스턴스 레이어 재구축 (그래프 RAG)")
-    try:
-        import db.build_instance_graph as big
-        big.main()
-    except Exception as e:  # 인스턴스 스키마 미반입 환경에서도 앞 단계는 유효
-        print(f"   건너뜀 — {e}")
+    # 온톨로지 인스턴스 레이어(그래프 RAG)는 제거(260806) — pgvector 하이브리드로 일원화.
+    # 실데이터 전수 엔티티 추출·그래프 재구축 비용이 커서 미채택. kg_* 잔존 데이터는 무해.
 
     if clear_board:
-        print("④ 게시판(의견·확인 필요사항) 초기화")
+        print("③ 게시판(의견·확인 필요사항) 초기화")
         import psycopg
         from config.settings import PG_DSN
         with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
@@ -86,7 +126,7 @@ def main():
             conn.commit()
         print(f"   삭제 {n}건 — 이후 등록되는 의견부터 실데이터로 축적")
     else:
-        print("④ 게시판은 유지 (초기화하려면 --clear-board)")
+        print("③ 게시판은 유지 (초기화하려면 --clear-board)")
     print("완료 — 서버 재시작 후 브라우저 강력 새로고침(Ctrl+Shift+R)하면 화면에 반영됩니다.")
 
 

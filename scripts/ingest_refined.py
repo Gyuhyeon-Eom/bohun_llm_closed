@@ -9,7 +9,7 @@ ocr_refine 파이프라인(마스킹→분할→LLM 교정)이 만든 out/<파�
   python3 scripts/ingest_refined.py <ocr_refine의 out 폴더>
   python3 scripts/ingest_refined.py ~/projects/bohun_ocr_refine/out
 적재 후 후속 (필요 시):
-  python3 scripts/to_grade_all.py && python3 db/build_instance_graph.py
+  python3 scripts/to_grade_all.py
 """
 import json
 import os
@@ -73,7 +73,7 @@ def main():
             ok += 1
         except Exception as e:
             print(f"실패: {fp.parent.name} — {e}", file=sys.stderr)
-    print(f"\n적재 완료: {ok}/{len(finals)}건. 후속: scripts/to_grade_all.py → db/build_instance_graph.py")
+    print(f"\n적재 완료: {ok}/{len(finals)}건. 후속: scripts/to_grade_all.py")
 
 
 if __name__ == "__main__":
