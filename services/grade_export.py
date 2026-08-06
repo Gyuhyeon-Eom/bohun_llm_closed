@@ -150,7 +150,7 @@ def export_xlsx(ga_id=None, emb=None):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "상이등급심사표"
+    ws.title = "상이등급검토서"
     ncol = len(COLUMNS)
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncol)
@@ -341,9 +341,9 @@ def export_xlsx(ga_id=None, emb=None):
     if ga_id:
         ag = ags[0]
         safe = (ag.get("agenda_no") or f"ga{ga_id}").replace("/", "_")
-        fname = f"상이등급심사표_{safe}_{ag.get('applicant','')}.xlsx"
+        fname = f"상이등급검토서_{safe}_{ag.get('applicant','')}.xlsx"
     else:
-        fname = "상이등급심사표_전체.xlsx"
+        fname = "상이등급검토서_전체.xlsx"
     path = os.path.join(tempfile.gettempdir(), fname)
     wb.save(path)
     return fname, path
@@ -355,7 +355,7 @@ def export_batch(ga_ids, emb=None):
     import zipfile
     from datetime import date
 
-    fname = f"상이등급심사표_일괄_{len(ga_ids)}건_{date.today().strftime('%Y%m%d')}.zip"
+    fname = f"상이등급검토서_일괄_{len(ga_ids)}건_{date.today().strftime('%Y%m%d')}.zip"
     path = os.path.join(tempfile.gettempdir(), fname)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         for gid in ga_ids:

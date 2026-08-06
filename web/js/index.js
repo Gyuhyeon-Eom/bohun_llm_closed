@@ -150,7 +150,7 @@ function updateBatchBtn(){
 }
 function doBatchDownload(){
   if(!batchSel.size) return;
-  logEvent('담당자', `심의의결서 일괄 다운로드 ${batchSel.size}건`);
+  logEvent('담당자', `심의검토서 일괄 다운로드 ${batchSel.size}건`);
   window.open(`/decision-doc/export-batch?ids=${[...batchSel].join(',')}`, '_blank');
 }
 let casePage = 1;
@@ -256,8 +256,8 @@ function renderWork(){
   wb.innerHTML = `
     ${tab==='report' ? `<div class="stepmenu">
       <div id="cksum-slot">${ckSummary()}</div>
-      <div class="cap">심의의결서 구성</div>
-      <button id="step0" class="${curSec===0?'on':''}" onclick="showSec(0)">AI 심의의결서 초안</button>
+      <div class="cap">심의검토서 구성</div>
+      <button id="step0" class="${curSec===0?'on':''}" onclick="showSec(0)">AI 심의검토서 초안</button>
       <button class="sub" onclick="gotoLan('s1')">신청사항</button>
       <button class="sub" onclick="gotoLan('s2')">관련자료</button>
       <button class="sub" onclick="gotoLan('s3')">관계 법령·판단</button>
@@ -301,13 +301,13 @@ function renderWsCaseList(wb){
           <div class="gfitem"><label>심의유형</label><input></div>
           <div class="gfitem"><label>심의내용</label><input></div>
           <div class="gfitem"><label>심사구분</label><input></div>
-          <div class="gfitem"><label>조회번호</label><input></div>
+          <div class="gfitem"><label>접수번호</label><input></div>
           <div class="gfitem"><label>소속</label><input></div>
           <div class="gfitem"><label>성명</label><input id="wsCaseSearch" placeholder="성명 또는 접수번호" oninput="wsCasePage=1;wsRenderCaseTable()"></div>
           <div class="gfitem"><label>담당자</label><input></div>
           <div class="gfitem"><label>분과</label><input></div>
           <div class="gfitem"><label>신체부위</label><input></div>
-          <div class="gfitem"><label>작업상태</label><input></div>
+          <div class="gfitem"><label>진행상태</label><input></div>
           <div class="gfitem"><label>전료과목</label><input></div>
           <div class="gfitem range"><label>접수기간</label><input type="date" value="2026-06-13"><span>~</span><input type="date" value="2026-07-15"></div>
           <div class="gfcheck"><input type="checkbox" checked disabled> 나의 안건현황 조회(기간 상관없음) 전체조회</div>
@@ -433,18 +433,18 @@ async function renderTable(){
   }
   renderGaList();
 }
-let gaBatchSel = new Set();  // 심사표 일괄 다운로드 선택 (행 클릭의 상세 이동과 별개)
+let gaBatchSel = new Set();  // 검토서 일괄 다운로드 선택 (행 클릭의 상세 이동과 별개)
 function toggleGaBatch(gaId, on){
   on ? gaBatchSel.add(gaId) : gaBatchSel.delete(gaId);
   const b = $('gaBatchBtn'); if(!b) return;
   b.disabled = !gaBatchSel.size;
-  b.innerHTML = `${icon('IconDownload',13)} 심사표 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}`;
+  b.innerHTML = `${icon('IconDownload',13)} 검토서 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}`;
 }
 async function gaBatchDownload(){
   if(!gaBatchSel.size) return;
   for(const gid of gaBatchSel){
     const g = gradeAgendas.find(x=>x.ga_id===gid);
-    if(g) await logGradeEvent(gid, g.progress||'검토', '심사표 일괄 다운로드', '담당자', `XLSX 일괄 산출 (${gaBatchSel.size}건 zip)`, null);
+    if(g) await logGradeEvent(gid, g.progress||'검토', '검토서 일괄 다운로드', '담당자', `XLSX 일괄 산출 (${gaBatchSel.size}건 zip)`, null);
   }
   window.open(`/grade-agendas/export-batch?ids=${[...gaBatchSel].join(',')}`, '_blank');
 }
@@ -468,7 +468,7 @@ function renderGaList(){
       <td><span class="res ${G_ST[g.status]||''}">${esc(g.status)}</span></td></tr>`).join('');
   $('gaListWrap').innerHTML = `
     <div class="glisthead" style="display:flex;align-items:center;gap:10px">● 안건 목록 [총 <span class="n">${visible.length}</span>건]
-      <button id="gaBatchBtn" class="btn outline sm" style="margin-left:auto" ${gaBatchSel.size?'':'disabled'} onclick="gaBatchDownload()">${icon('IconDownload',13)} 심사표 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}</button></div>
+      <button id="gaBatchBtn" class="btn outline sm" style="margin-left:auto" ${gaBatchSel.size?'':'disabled'} onclick="gaBatchDownload()">${icon('IconDownload',13)} 검토서 일괄 다운로드${gaBatchSel.size?` (${gaBatchSel.size})`:''}</button></div>
     <div class="samplenote">※ 아래 안건은 실제 사례가 아닌, 심사의결서 정형화 틀을 참고해 생성한 <b>시연용 표본 데이터</b>입니다 (개인정보 미포함 · 실사례 연계 시 의결서 원문 매핑 예정)</div>
     <div class="tblcard"><table class="ds" style="min-width:760px"><thead><tr>
       <th style="width:26px"></th><th>안건번호</th><th>성명</th><th style="width:66px">구분</th><th style="width:66px">단계</th><th>신체부위</th><th>상이처</th><th>상이등급(기존→재심의)</th><th>AI 판정근거 요약</th><th>상태</th>
@@ -488,11 +488,11 @@ function gotoGSec(id){
   setTimeout(()=>{ const el = $(id); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 60);
 }
 function setGTab(t){
-  if(gv.tab==='info' && t!=='info') captureSheet();   // 심사표 편집값 보존
+  if(gv.tab==='info' && t!=='info') captureSheet();   // 검토서 편집값 보존
   gv.tab = t; gv.refOpen = false; renderGradeDetail();
 }
 
-/* v0.6 화면설계: 좌측 메뉴(상세정보/AI 심의의결서/이전 심사 기록) + 우측 관련자료 패널.
+/* v0.6 화면설계: 좌측 메뉴(상세정보/AI 심의검토서/이전 심사 기록) + 우측 관련자료 패널.
    단계 스테퍼는 목록 '단계' 컬럼, AI 예측은 상이처별 인라인 (260722 개편 유지) */
 function renderGradeDetail(){
   const g = gv.ga;
@@ -503,9 +503,9 @@ function renderGradeDetail(){
       <button class="sub" onclick="gotoGSec('g_recv')">신검 접수 정보</button>
       <button class="sub" onclick="gotoGSec('g_docs')">신검 서류 검토</button>
       <button class="sub" onclick="gotoGSec('g_items')">상이처별 등급 검토</button>
-      <button class="sub" onclick="gotoGSec('g_sheet')">심사표 작성</button>
+      <button class="sub" onclick="gotoGSec('g_sheet')">검토서 작성</button>
       <button class="sub" onclick="gotoGSec('g_review')">검토사항·비고</button>`:''}
-      <button class="${gv.tab==='doc'?'on':''}" onclick="setGTab('doc')">AI 심의의결서</button>
+      <button class="${gv.tab==='doc'?'on':''}" onclick="setGTab('doc')">AI 심의검토서</button>
       <button class="${gv.tab==='prior'?'on':''}" onclick="setGTab('prior')">이전 심사 기록</button>
     </div>`;
   const head = `
@@ -531,7 +531,7 @@ function renderGradeDetail(){
     <aside class="gref" id="gradeRefPanel" style="display:none"></aside></div>`;
   GP().scrollTop = 0;
   if(gv.tab==='info'){
-    sheetRecalc();   // 심사표 비고·종합 제안등급 초기 계산
+    sheetRecalc();   // 검토서 비고·종합 제안등급 초기 계산
     Object.keys(gv.itemPreds).forEach(i=>{ const r=gv.itemPreds[i], el=$('ipred_'+i);   // 예측값 복원
       if(el && r && !r.error) el.innerHTML = `<span class="mut" style="font-size:10.5px">AI 참고 (별표3 대조)</span><br>
         <span class="res yes" style="margin-right:4px">1순위 ${esc(r.grade1)}</span><span class="res hold">2순위 ${r.grade2?esc(r.grade2):'—'}</span>
@@ -590,10 +590,10 @@ async function loadGradeScan(gaId){
 
 async function gradeExport(){
   const g=gv.ga;
-  await logGradeEvent(g.ga_id, g.progress||'검토', '심사표 다운로드', '담당자', 'XLSX 산출물 생성', null);
+  await logGradeEvent(g.ga_id, g.progress||'검토', '검토서 다운로드', '담당자', 'XLSX 산출물 생성', null);
   window.open(`/grade-agendas/${g.ga_id}/export`, '_blank');
 }
-/* 작업로그 기록은 유지 (탭은 제거 — 이력은 서버 grade_log에 계속 축적, 심사표 XLSX 부속 시트로 산출) */
+/* 작업로그 기록은 유지 (탭은 제거 — 이력은 서버 grade_log에 계속 축적, 검토서 XLSX 부속 시트로 산출) */
 async function logGradeEvent(gaId, step, event, actor, detail, fileName, advance){
   try{
     await fetch(`/grade-agendas/${gaId}/log`, {method:'POST', headers:{'Content-Type':'application/json'},
@@ -653,7 +653,7 @@ function gradeInfoBody(g){
           <button class="btn outline sm" onclick="predictItem(${i})">${icon('IconWand2',12)} AI 등급예측 (1·2순위)</button></span>
       </div></div>`;
   }).join('');
-  // 수정가능 심사표: 셀 편집 → 종합 제안등급 자동 재계산(최중증), 저장 시 XLSX 산출에도 반영
+  // 수정가능 검토서: 셀 편집 → 종합 제안등급 자동 재계산(최중증), 저장 시 XLSX 산출에도 반영
   const sheetRows = items.map((it,i)=>`<tr>
       <td class="mut" style="text-align:center">${i+1}</td>
       <td><input id="si_injury_${i}" value="${esc(sv(i,'injury'))}" oninput="sheetRecalc()"></td>
@@ -664,9 +664,9 @@ function gradeInfoBody(g){
       <td><input id="si_proposed_grade_${i}" value="${esc(sv(i,'proposed_grade'))}" placeholder="미입력 시 신검등급" oninput="sheetRecalc()"></td>
       <td><span id="si_ud_${i}" class="mut" style="font-size:11.5px"></span></td></tr>`).join('');
   const flowStrip = `
-    <div class="gflow">${[['g_recv','① 신검 접수 정보'],['g_docs','② 신검 서류 검토'],['g_items','③ 상이처별 등급 검토'],['g_sheet','④ 심사표 작성'],['g_review','⑤ 검토사항·비고']]
+    <div class="gflow">${[['g_recv','① 신검 접수 정보'],['g_docs','② 신검 서류 검토'],['g_items','③ 상이처별 등급 검토'],['g_sheet','④ 검토서 작성'],['g_review','⑤ 검토사항·비고']]
       .map(([id,l])=>`<a onclick="gotoGSec('${id}')">${l}</a>`).join('<span class="mut">→</span>')}
-      <span class="mut">→</span><a onclick="setGTab('doc')">심의의결서</a></div>`;
+      <span class="mut">→</span><a onclick="setGTab('doc')">심의검토서</a></div>`;
   return `${flowStrip}
     <h4 id="g_recv" style="margin-top:6px">① 신검 접수 정보 <span class="mut">— 신검종류·기준일자·직전등급 (재심의 대상 확인)</span></h4>
     <div class="card soft" style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px;margin:8px 0 16px">
@@ -688,7 +688,7 @@ function gradeInfoBody(g){
     <div class="tblcard" style="margin-bottom:20px"><table class="ds" style="min-width:0"><thead><tr>
       <th>검사항목</th><th>측정값</th><th>기준</th><th>판정</th></tr></thead><tbody>${measRows}</tbody></table></div>`:''}
     ${g.specialist_opinion?`<h4 style="font-weight:600">보훈병원 전문의 소견</h4><div class="card soft" style="line-height:22px">${esc(g.specialist_opinion)}</div>`:''}
-    <h4 id="g_sheet">④ 심사표 작성 <span class="mut">— 수정 가능 · 종합 제안등급은 상이처별 제안등급 따라 자동 계산(최중증), 저장 시 XLSX 반영</span></h4>
+    <h4 id="g_sheet">④ 검토서 작성 <span class="mut">— 수정 가능 · 종합 제안등급은 상이처별 제안등급 따라 자동 계산(최중증), 저장 시 XLSX 반영</span></h4>
     <div class="tblcard" style="margin-bottom:8px"><table class="ds sheet" style="min-width:860px"><thead><tr>
       <th style="width:30px">#</th><th>요건인정 상이처</th><th style="width:104px">직전등급</th><th style="width:90px">신검과목</th>
       <th style="width:104px">신검등급</th><th>상이정도 및 소견<br><span style="font-weight:400">(보훈병원 전문의)</span></th><th style="width:130px">상이처별 제안등급</th><th style="width:110px">비고(자동)</th></tr></thead>
@@ -697,8 +697,8 @@ function gradeInfoBody(g){
       <div style="font-size:13px"><span class="mut">종합 제안등급</span> <b id="sheetTotal" class="ink" style="font-size:14px">—</b>
         <span id="sheetTotalNote" class="mut" style="font-size:11.5px"></span></div>
       <span style="flex:1"></span>
-      <button class="btn primary sm" id="sheetSaveBtn" onclick="saveSheet()">${icon('IconCheck',13)} 심사표 저장</button></div>
-    <p class="mutetxt" style="margin:0 0 16px">※ 종합판정(등급 상향 검토) 대상 기준: 7급 상이처 3개 이상일 때만 — 그 외에는 상이처별 최고(중한) 등급으로 종합 제안. 확정 후 [AI 심의의결서] 메뉴에서 조립 문안을 확인하세요.</p>
+      <button class="btn primary sm" id="sheetSaveBtn" onclick="saveSheet()">${icon('IconCheck',13)} 검토서 저장</button></div>
+    <p class="mutetxt" style="margin:0 0 16px">※ 종합판정(등급 상향 검토) 대상 기준: 7급 상이처 3개 이상일 때만 — 그 외에는 상이처별 최고(중한) 등급으로 종합 제안. 확정 후 [AI 심의검토서] 메뉴에서 조립 문안을 확인하세요.</p>
     <h4 id="g_review">⑤ 검토사항 <span class="mut">(AI가 원문에서 추출·정리한 실무 체크포인트${items.length>1?' — 상이처별':''})</span></h4>
     ${items.length>1
       ? items.map((it,i)=>{const xs=i===0?(g.review_items||[]):(it.review_items||[]); return xs.length?`
@@ -755,7 +755,7 @@ function openPredCriteria(i){
     </div></div>`);
 }
 
-/* ── 수정가능 심사표: 입력 캡처 → 종합 제안등급 자동 계산(최중증) → 저장(injury_items) ── */
+/* ── 수정가능 검토서: 입력 캡처 → 종합 제안등급 자동 계산(최중증) → 저장(injury_items) ── */
 function captureSheet(){
   const items = gaItems(gv.ga);
   gv.sheetVals = items.map((it,i)=>{
@@ -803,7 +803,7 @@ async function saveSheet(){
 
 /* ── 자료보기 → 우측 관련자료 패널 표출 (v0.6 화면설계 ④ — 다운로드 가능) ── */
 function showGradeRef(i){
-  captureSheet();   // 패널 조작 중 심사표 입력 보존
+  captureSheet();   // 패널 조작 중 검토서 입력 보존
   const g = gv.ga, it = gaItems(g)[i] || {};
   const panel = $('gradeRefPanel'); if(!panel) return;
   const rel = it.related_docs || g.related_docs || [];
@@ -830,17 +830,17 @@ function showGradeRef(i){
     </div>`;
 }
 
-/* ── 심의의결서 탭 (LLM 미사용 — 심사표 확정값 기계적 조립) ── */
+/* ── 심의검토서 탭 (LLM 미사용 — 검토서 확정값 기계적 조립) ── */
 function gradeDocText(g){
   const items = gaItems(g);
   const props = items.map(it=>it.proposed_grade || it.exam_grade || null);
   const real = props.filter(p=>p && gSeverity(p)<99);
   const total = real.length ? real.reduce((a,b)=>gSeverity(b)<gSeverity(a)?b:a)
               : (props.some(p=>/미달/.test(p||''))?'등급기준미달':'미정');
-  const L = ['상 이 등 급 심 의 의 결 서 (안)', '',
+  const L = ['상 이 등 급 심 의 검 토 서 (안)', '',
     `안건번호: ${g.agenda_no}  /  성명: ${g.applicant}${g.is_real?' [실데이터]':''}  /  접수번호: ${g.recv_no}`,
     `신청구분: ${g.apply_type||'—'}  /  구분: ${g.category||'상이'}  /  단계: ${g.progress||'접수'}`, '',
-    `주문: 신청인의 상이등급을 "${total}"(으)로 판정(안)한다.`, '', '이유:'];
+    `의결주문(안): 신청인의 상이등급을 "${total}"(으)로 판정(안)한다.`, '', '이유(안):'];
   items.forEach((it,k)=>{
     const prop = props[k] || '—';
     const ud = gUpdown(it.prev_grade, prop);
@@ -853,29 +853,29 @@ function gradeDocText(g){
   }
   if(g.specialist_opinion) L.push('', `보훈병원 전문의 소견: ${g.specialist_opinion}`);
   if(g.prior_history) L.push('', `이전 판정·재심의 경위: ${g.prior_history}`);
-  L.push('', '※ 본 문서는 심사표 확정값을 기계적으로 결합해 생성한 조립본입니다 (생성 LLM 미사용) — 의결 전 초안이며, 보훈심사위원회 의결로 효력이 발생합니다.');
+  L.push('', '※ 본 문서는 검토서 확정값을 기계적으로 결합해 생성한 조립본입니다 (생성 LLM 미사용) — 의결 전 초안이며, 보훈심사위원회 의결로 효력이 발생합니다.');
   return L.join('\n');
 }
 function gradeDocBody(g){
   const txt = gradeDocText(g);
-  return `<h4 style="margin-top:0">심의의결서(안) <span class="mut">— 심사표 확정값 기계적 조립 · 생성 LLM 미사용</span></h4>
+  return `<h4 style="margin-top:0">심의검토서(안) <span class="mut">— 검토서 확정값 기계적 조립 · 생성 LLM 미사용</span></h4>
     <div class="card" style="white-space:pre-wrap;font-size:13px;line-height:22px;font-family:inherit">${esc(txt)}</div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn outline sm" onclick="downloadGradeDoc()">${icon('IconDownload',13)} TXT 다운로드</button>
-      <button class="btn outline sm" onclick="gradeExport()">${icon('IconDownload',13)} 심사표 XLSX</button>
-      <span class="mutetxt" style="margin-left:auto;align-self:center">상세정보의 심사표를 수정·저장하면 이 문안에 즉시 반영됩니다</span></div>`;
+      <button class="btn outline sm" onclick="gradeExport()">${icon('IconDownload',13)} 검토서 XLSX</button>
+      <span class="mutetxt" style="margin-left:auto;align-self:center">상세정보의 검토서를 수정·저장하면 이 문안에 즉시 반영됩니다</span></div>`;
 }
 function downloadGradeDoc(){
   const g = gv.ga;
   const blob = new Blob([gradeDocText(g)], {type:'text/plain;charset=utf-8'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `상이등급심의의결서_${g.agenda_no}_${g.applicant}.txt`;
+  a.download = `상이등급심의검토서_${g.agenda_no}_${g.applicant}.txt`;
   a.click(); URL.revokeObjectURL(a.href);
-  logGradeEvent(g.ga_id, g.progress||'검토', '심의의결서(안) 다운로드', '담당자', '조립 TXT (LLM 미사용)', a.download);
+  logGradeEvent(g.ga_id, g.progress||'검토', '심의검토서(안) 다운로드', '담당자', '조립 TXT (LLM 미사용)', a.download);
 }
 
-/* ── 이전 심사 기록 페이지 (v0.6 좌측 메뉴 ③): 직전 심사표·엑셀 확인·스캔본·이전 의결서 ── */
+/* ── 이전 심사 기록 페이지 (v0.6 좌측 메뉴 ③): 직전 검토서·엑셀 확인·스캔본·이전 의결서 ── */
 function priorScansHtml(){
   const g = gv.ga;
   const docs = gv.scanDocs;
@@ -890,12 +890,12 @@ function priorScansHtml(){
 }
 function gradePriorBody(g){
   const prev = (String(g.grade_change||'').split('→')[0]||'').trim() || '—';
-  return `<h4 style="margin-top:0">이전 심사 기록 <span class="mut">— 직전 심사표·스캔본·이전 심의의결서</span></h4>
-    <div class="card"><div class="t">직전 심사표</div>
+  return `<h4 style="margin-top:0">이전 심사 기록 <span class="mut">— 직전 검토서·스캔본·이전 심의의결서</span></h4>
+    <div class="card"><div class="t">직전 검토서</div>
       <div style="font-size:12.5px">직전등급 <b>${esc(prev)}</b> · 등급기준일 ${esc(g.grade_date||'—')} · 신청구분 ${esc(g.apply_type||'—')}</div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-        <button class="btn outline sm" onclick="gradeExport()">${icon('IconDownload',13)} 심사표 엑셀 확인 (현재 확정값)</button>
-        <span class="mutetxt">직전 회차 원본 심사표 파일은 미보유 — e통합보훈시스템 연계 시 매핑 예정</span></div></div>
+        <button class="btn outline sm" onclick="gradeExport()">${icon('IconDownload',13)} 검토서 엑셀 확인 (현재 확정값)</button>
+        <span class="mutetxt">직전 회차 원본 검토서 파일은 미보유 — e통합보훈시스템 연계 시 매핑 예정</span></div></div>
     <div class="card"><div class="t">이전 판정·재심의 경위</div>
       <div style="font-size:12.5px;line-height:21px">${g.prior_history?esc(g.prior_history):'<span class="mutetxt">기록 없음</span>'}</div></div>
     ${g.past_history?`<div class="card"><div class="t">과거력·기왕증</div><div style="font-size:12.5px;line-height:21px">${esc(g.past_history)}</div></div>`:''}
@@ -1099,7 +1099,7 @@ function getField(field, disId){
 }
 function startEdit(field, disId){
   const el = $(`eb_${field}_${disId||0}`); if(!el) return;
-  el.innerHTML = `<textarea id="ta_${field}_${disId||0}" style="width:100%;min-height:80px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;line-height:20px;font-family:inherit">${esc(getField(field,disId))}</textarea>
+  el.innerHTML = `<textarea id="ta_${field}_${disId||0}" style="width:100%;min-height:160px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;line-height:20px;font-family:inherit">${esc(getField(field,disId))}</textarea>
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
       <button class="btn outline sm" onclick="showSec(curSec)">취소</button>
       <button class="btn primary sm" onclick="saveEdit('${field}',${disId||'null'})">저장</button></div>`;
@@ -1317,7 +1317,7 @@ function secDraft(){
       <span class="mut mono" style="font-size:12.5px">${esc(doc.recv_no)} · 담당 ${esc(doc.subcommittee_info.name)}</span>
       <span style="flex:1"></span>
       <span class="mut" style="font-size:12px">${lastDraftSave?`${lastDraftSave} 마지막 저장`:''}</span>
-      <button class="btn primary sm" id="genAllBtn" onclick="genAllDrafts()">${icon('IconWand2',13)} AI 심의의결서 생성</button>
+      <button class="btn primary sm" id="genAllBtn" onclick="genAllDrafts()">${icon('IconWand2',13)} AI 심의검토서 생성</button>
       <button class="btn outline sm" ${draftEditing?'':'disabled'} title="${draftEditing?'수정 중인 란 저장':'수정 중인 란이 없습니다 — 각 란의 ✎ 수정으로 열립니다'}" onclick="saveDraft(draftEditing)">${icon('IconCheck',13)} 저장</button>
       <button class="btn outline sm" id="regenAllBtn" onclick="regenJudgeAll()">${icon('IconWand2',13)} 종합판단 업데이트</button>
       <button class="btn outline sm" onclick="setPanel('files')">${icon('IconInbox',13)} 사건 자료함${caseFiles?` (최종 ${caseFiles.filter(f=>f.is_final).length}/${caseFiles.length})`:''}</button>
@@ -1388,7 +1388,7 @@ async function openRefModal(){
       <div class="mcap" style="margin-top:12px">기타 자료 (${rest.length})</div>${rest.map(row).join('')||'<div class="mutetxt">없음</div>'}
     </div></div>`);
 }
-/* ── AI 심의의결서 일괄 생성 (260725): 1~3장 순차 생성 + 진행 로딩바, 완료 후 수정·재생성 ── */
+/* ── AI 심의검토서 일괄 생성 (260725): 1~3장 순차 생성 + 진행 로딩바, 완료 후 수정·재생성 ── */
 async function genAllDrafts(force){
   const secs = ['s1','s2','s3'];
   const todo = caseDrafts ? secs.filter(x=>!caseDrafts[x].content) : secs;
@@ -1397,7 +1397,7 @@ async function genAllDrafts(force){
   const names = {s1:'1. 신청사항', s2:'2. 관련자료', s3:'3. 관계법령·판단의 전제'};
   document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="genModal">
     <div class="gmodal" style="width:520px;text-align:center">
-      <div style="font-size:15px;font-weight:800;margin-bottom:6px">${icon('IconWand2',16)} AI 심의의결서 초안 생성 중</div>
+      <div style="font-size:15px;font-weight:800;margin-bottom:6px">${icon('IconWand2',16)} AI 심의검토서 초안 생성 중</div>
       <div class="mut" id="genStep" style="font-size:12.5px;margin-bottom:14px">준비 중…</div>
       <div style="height:10px;border-radius:999px;background:var(--slate-100);overflow:hidden">
         <div id="genBar" style="height:100%;width:4%;background:var(--blue);border-radius:999px;transition:width .4s"></div></div>
@@ -1414,7 +1414,7 @@ async function genAllDrafts(force){
     }catch(e){ failed = `${names[sec]}: 요청 실패 — API 서버 상태를 확인하세요`; break; }
     if(bar) bar.style.width = `${Math.round((i + 1) / targets.length * 100)}%`;
   }
-  logEvent('AI 자동생성', failed ? `심의의결서 일괄 생성 중단 — ${failed}` : `심의의결서 초안 일괄 생성 (${targets.length}개 란)`);
+  logEvent('AI 자동생성', failed ? `심의검토서 일괄 생성 중단 — ${failed}` : `심의검토서 초안 일괄 생성 (${targets.length}개 란)`);
   if(!failed) orderDirty = false;
   await loadDrafts();
   $('genModal')?.remove();
@@ -1465,7 +1465,7 @@ function clientGate(){
 }
 function gateMsgHtml(){
   const gate = draftGate || {ok:false, missing_checks:[], empty_sections:[], missing_judgment:[]};
-  if(gate.ok) return `<span class="res yes">조립 가능</span> 초안(1~3장)·종합판단(4장) 완료 — 심의의결서는 확정 텍스트를 <b>LLM 없이</b> 그대로 결합합니다.`;
+  if(gate.ok) return `<span class="res yes">조립 가능</span> 초안(1~3장)·종합판단(4장) 완료 — 심의검토서는 확정 텍스트를 <b>LLM 없이</b> 그대로 결합합니다.`;
   const parts = [...gate.empty_sections.map(x=>x+' 미작성'),
                  ...(gate.missing_judgment||[]).map(x=>`4장 종합판단 미완료(${x})`),
                  ...gate.missing_checks.map(x=>'필수: '+x)];
@@ -1510,9 +1510,9 @@ function openSendModal(){
   const dis = ok => ok ? '' : 'disabled';
   document.body.insertAdjacentHTML('beforeend', `<div class="gmodal-ov" id="sendModal" onclick="if(event.target===this)this.remove()">
     <div class="gmodal" style="width:640px">
-      <div class="mh"><span>${icon('IconSend',16)} e통합보훈시스템 내보내기 <span class="mut" style="font-size:12px;font-weight:400">— 심의의결서 산출물 일괄 진입점</span></span>
+      <div class="mh"><span>${icon('IconSend',16)} e통합보훈시스템 내보내기 <span class="mut" style="font-size:12px;font-weight:400">— 심의검토서 산출물 일괄 진입점</span></span>
         <button class="backlink" style="margin:0" onclick="$('sendModal').remove()">${icon('IconX',18,'color:var(--slate-400)')}</button></div>
-      ${row('조립 심의의결서 <span class="stepchip" style="background:#dcfce7;color:#15803d">권장 · LLM 미사용</span>',
+      ${row('조립 심의검토서 <span class="stepchip" style="background:#dcfce7;color:#15803d">권장 · LLM 미사용</span>',
         '초안(1~3장 확정 텍스트) + 종합판단(4장)을 기계적으로 결합 — 필수 체크와 4장 판단 완료 시',
         `<button class="btn outline sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=txt','_blank')">TXT</button>
          <button class="btn primary sm" ${dis(gate.ok)} onclick="window.open('/decision-doc/'+doc.app_id+'/export-assembled?fmt=pdf','_blank')">PDF</button>`,
@@ -1526,7 +1526,7 @@ function openSendModal(){
         `<button class="btn outline sm" ${dis(genOk)} onclick="dlSplit('txt')">TXT·ZIP</button>
          <button class="btn outline sm" ${dis(genOk)} onclick="dlSplit('pdf')">PDF·ZIP</button>`,
         genOk, genMsg) : ''}
-      <div class="mutetxt" style="font-size:11px;margin-top:6px">※ 지금은 파일 산출까지 — e통합보훈시스템 연계 시 이 창에서 완성된 심의의결서가 직접 동기화(전송)됩니다.</div>
+      <div class="mutetxt" style="font-size:11px;margin-top:6px">※ 지금은 파일 산출까지 — e통합보훈시스템 연계 시 이 창에서 완성된 심의검토서가 직접 동기화(전송)됩니다.</div>
     </div></div>`);
 }
 
@@ -1851,15 +1851,15 @@ function fullText(){
     t += c?.body_text ? `[${d.name}]\n${c.body_text}\n결론: ${c.final_text} (${c.status})\n\n`
                       : `[${d.name}] (판단 미작성)\n\n`;
   });
-  return t + '※ 본 문서는 AI 지원으로 작성된 심의의결서이며, 담당자 확정 및 보훈심사위원회 의결로 효력이 발생함';
+  return t + '※ 본 문서는 AI 지원으로 작성된 심의검토서이며, 담당자 확정 및 보훈심사위원회 의결로 효력이 발생함';
 }
-function doCopy(){ navigator.clipboard.writeText(fullText()); logEvent('담당자','심의의결서 전문 복사'); }
+function doCopy(){ navigator.clipboard.writeText(fullText()); logEvent('담당자','심의검토서 전문 복사'); }
 function doDownloadTxt(){
-  logEvent('담당자','심의의결서 TXT 다운로드');
+  logEvent('담당자','심의검토서 TXT 다운로드');
   window.open(`/decision-doc/${selId}/export?fmt=txt`, '_blank');
 }
 function doDownloadPdf(){
-  logEvent('담당자','심의의결서 PDF 다운로드');
+  logEvent('담당자','심의검토서 PDF 다운로드');
   window.open(`/decision-doc/${selId}/export?fmt=pdf`, '_blank');
 }
 function dlSplit(fmt){              // 상이처별 개별본 일괄 zip

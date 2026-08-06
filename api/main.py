@@ -612,7 +612,7 @@ def api_case_file_ai_notes(app_id: int):
 
 
 @app.get("/cases/{app_id}/similar")           # 안건 기준 유사사례 (우측 영역 — 유사사례 검색 탭)
-def api_case_similar(app_id: int, n: int = 5):
+def api_case_similar(app_id: int, n: int = 10):   # 검토의견 38: 최소 5개 이상, 유사도순 최대한
     """안건 요약 임베딩으로 과거사례 검색 — 유사도(score)·사유(reason) 포함."""
     import psycopg
     from psycopg.rows import dict_row
