@@ -74,7 +74,8 @@ _ENVELOPE_RE = _re2.compile(
     r"|scan-docs/(upload$|\d+/(normalize|normalize-clear|index-clean|to-case|to-grade)$)"
     r"|decision-doc/\d+/(draft|judge)$"
     r"|grade-agendas/\d+/(draft|export)$"
-    r"|cases/\d+/(similar$|similar-reasons$|files/ai-notes$))")
+    r"|similar-cases/search$"
+    r"|cases/\d+/(similar$|similar-reasons$|side-check$|files/ai-notes$))")
 
 
 def _envelope(j):
@@ -1128,6 +1129,8 @@ def api_similar_search(q: str | None = None, mode: str = "and",
                         date_from=date_from, date_to=date_to, duty_type=duty,
                         person_rank=rank, decision=decision, review_type=review_type,
                         query_vec=vec, n=n)
+    for r in rows:
+        r["case_sn"] = str(r["case_id"])   # 명세 ID 규약(string) — case_id는 구화면 호환 병행
     return {"total": len(rows), "cases": rows}
 
 

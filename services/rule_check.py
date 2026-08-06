@@ -96,9 +96,9 @@ def side_check(app_id: int) -> dict:
             note = (f"신청은 {'·'.join(lab[s] for s in sorted(applied))}인데 판단문은 "
                     f"{'·'.join(lab[s] for s in sorted(judged))} — 오기 여부 확인 필요")
             warns += 1
-        items.append({"dis_id": d["dis_id"], "name": d.get("name"),
-                      "applied": sorted(applied), "judged": sorted(judged),
-                      "status": status, "note": note})
+        items.append({"wnd_sn": str(d["dis_id"]), "dis_id": d["dis_id"],  # 명세 ID 규약 + 구화면 병행
+                      "name": d.get("name"), "applied": sorted(applied),
+                      "judged": sorted(judged), "status": status, "note": note})
     return {"app_id": app_id, "items": items, "mismatch": warns,
             "note": "신청상이·판단문 좌우 표기 결정적 대조 — 확정은 담당자(HITL)"}
 
