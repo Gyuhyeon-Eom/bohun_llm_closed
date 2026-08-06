@@ -63,7 +63,9 @@ CREATE TABLE IF NOT EXISTS cases (
   decision    TEXT,
   decided_at  DATE,
   summary     TEXT,
-  summary_embedding vector(1024)
+  summary_embedding vector(1024),
+  duty_type   TEXT,             -- 소속(군인·공무원 등) — 상세검색 필터 (검토의견 39)
+  person_rank TEXT              -- 계급(직급) — 상세검색 필터
 );
 CREATE INDEX IF NOT EXISTS idx_cases_hnsw ON cases USING hnsw (summary_embedding vector_cosine_ops);
 

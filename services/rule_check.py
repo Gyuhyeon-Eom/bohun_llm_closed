@@ -49,6 +49,60 @@ def _mri_check(dis, meds):
     return "lack", f"MRI 촬영이 부상일 기준 {days}일 경과 — 3개월 초과 (진구성 소견 여부 재판독 필요)"
 
 
+# ── 신청상이 ↔ 판단문 일치 검사 (검토의견 35번·1분과: 왼쪽팔 신청 → 오른팔 의결 오기 검출) ──
+# '좌골'(부위명)·'좌상'(挫傷) 같은 어휘가 좌측으로 오탐되지 않게 단독 '좌/우'는 쓰지 않는다.
+_L = re.compile(r"왼쪽|왼측|왼|좌측")
+_R = re.compile(r"오른쪽|오른측|오른|우측")
+_B = re.compile(r"양측|양쪽|양하지|양상지|양무릎|양어깨")
+
+
+def _sides(text: str) -> set[str]:
+    """텍스트에서 좌/우/양측 표기를 추출 — 'L'·'R'·'B' 집합."""
+    t = str(text or "")
+    out = set()
+    if _B.search(t):
+        out.add("B")
+    if _L.search(t):
+        out.add("L")
+    if _R.search(t):
+        out.add("R")
+    return out
+
+
+def side_check(app_id: int) -> dict:
+    """상이처별 신청 표기(명칭·부위측)와 판단문(conclusion) 좌우 표기 대조.
+    결정적 검사 — LLM 미사용. 마지막 체크단계(확정 전) 화면에서 호출."""
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT dis_id, name, body_side FROM disability WHERE app_id=%s"
+                    " ORDER BY dis_id", (app_id,))
+        diss = cur.fetchall()
+        cur.execute("SELECT dis_id, body_text, final_text FROM conclusion WHERE app_id=%s",
+                    (app_id,))
+        cons = {c["dis_id"]: c for c in cur.fetchall()}
+    items, warns = [], 0
+    for d in diss:
+        applied = _sides(f"{d.get('name') or ''} {d.get('body_side') or ''}")
+        con = cons.get(d["dis_id"]) or {}
+        judged = _sides(f"{con.get('body_text') or ''} {con.get('final_text') or ''}")
+        if not applied or "B" in applied:
+            status, note = "ok", None                      # 좌우 구분 없는 상이처는 대상 외
+        elif not judged:
+            status, note = "manual", "판단문에 좌우 표기 없음 — 담당자 확인"
+        elif applied & judged:
+            status, note = "ok", None
+        else:
+            status = "mismatch"
+            lab = {"L": "왼쪽", "R": "오른쪽", "B": "양측"}
+            note = (f"신청은 {'·'.join(lab[s] for s in sorted(applied))}인데 판단문은 "
+                    f"{'·'.join(lab[s] for s in sorted(judged))} — 오기 여부 확인 필요")
+            warns += 1
+        items.append({"dis_id": d["dis_id"], "name": d.get("name"),
+                      "applied": sorted(applied), "judged": sorted(judged),
+                      "status": status, "note": note})
+    return {"app_id": app_id, "items": items, "mismatch": warns,
+            "note": "신청상이·판단문 좌우 표기 결정적 대조 — 확정은 담당자(HITL)"}
+
+
 def check(app_id: int) -> dict:
     with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
         cur.execute("SELECT * FROM application WHERE app_id=%s", (app_id,))

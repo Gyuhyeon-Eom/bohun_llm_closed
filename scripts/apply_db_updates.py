@@ -90,6 +90,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_application_src_key ON application(src_case
   WHERE src_case_key IS NOT NULL;
 ALTER TABLE file_page ADD COLUMN IF NOT EXISTS extract_model TEXT;
 ALTER TABLE file_page ADD COLUMN IF NOT EXISTS unreadable_json JSONB;
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS duty_type TEXT;
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS person_rank TEXT;
 """
 
 

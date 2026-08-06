@@ -6,6 +6,7 @@ TODO(확인): 운영 전환 시 MockLLM -> FabrixClient, HashEmbedder -> bge로 
 """
 import json as _json
 import os
+import re
 import tempfile, threading, time
 from pathlib import Path
 from fastapi import FastAPI, Response, UploadFile
@@ -1110,6 +1111,30 @@ def api_grade_export(ga_id: int, dl: int = 0):
         conn.commit()
     return {"ga_id": str(ga_id), "file_name": fname, "url": url,
             "backend": backend, "expires_s": expires}
+
+
+@app.get("/similar-cases/search")     # 유사사례 상세검색 (검토의견 39·3분과 — 복합 AND 조건)
+def api_similar_search(q: str | None = None, mode: str = "and",
+                       date_from: str | None = None, date_to: str | None = None,
+                       duty: str | None = None, rank: str | None = None,
+                       decision: str | None = None, review_type: str | None = None,
+                       sem: str | None = None, n: int = 20):
+    """q=키워드(쉼표·공백 구분, mode=and|or) / date_from·date_to=의결일자 /
+    duty=소속 / rank=계급(직급) / decision=결과(해당·비해당) / sem=의미 질의(유사도순 정렬)."""
+    from services.similar_case import search_cases
+    kws = [w for w in re.split(r"[,\s]+", q or "") if w]
+    vec = _emb.encode([sem])[0] if sem else None
+    rows = search_cases(keywords=kws or None, mode=("or" if mode == "or" else "and"),
+                        date_from=date_from, date_to=date_to, duty_type=duty,
+                        person_rank=rank, decision=decision, review_type=review_type,
+                        query_vec=vec, n=n)
+    return {"total": len(rows), "cases": rows}
+
+
+@app.get("/cases/{app_id}/side-check")  # 신청상이·판단문 좌우 일치 검사 (검토의견 35 — 확정 전 최종 체크)
+def api_side_check(app_id: int):
+    from services import rule_check
+    return rule_check.side_check(app_id)
 
 
 @app.get("/rule-check/{app_id}")      # 분과 판단기준 자동대조 (정형화틀 v2.4, 결정적)
