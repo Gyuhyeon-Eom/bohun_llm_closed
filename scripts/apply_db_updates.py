@@ -92,6 +92,7 @@ ALTER TABLE file_page ADD COLUMN IF NOT EXISTS extract_model TEXT;
 ALTER TABLE file_page ADD COLUMN IF NOT EXISTS unreadable_json JSONB;
 ALTER TABLE cases ADD COLUMN IF NOT EXISTS duty_type TEXT;
 ALTER TABLE cases ADD COLUMN IF NOT EXISTS person_rank TEXT;
+ALTER TABLE conclusion ADD COLUMN IF NOT EXISTS law_snapshot JSONB;
 """
 
 

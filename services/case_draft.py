@@ -234,3 +234,30 @@ def assemble(app_id: int) -> str:
         L.append("")
     L.append("※ 본 문서는 담당자가 확정한 란 텍스트를 기계적으로 결합해 생성되었습니다 (생성 LLM 미사용).")
     return "\n".join(L)
+
+
+def draft_history(app_id: int, section: str | None = None) -> list[dict]:
+    """작성이력 목록 (검토의견 37 — 사업단 확답) — new_value가 그 시점의 란 본문.
+    field_edit(draft_*)를 그대로 읽는다 (생성·재생성·담당자 수정·복원 모두 축적됨)."""
+    where = "app_id=%s AND field LIKE 'draft_%%'"
+    params: list = [app_id]
+    if section:
+        where += " AND field=%s"; params.append(f"draft_{section}")
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT fe_id, field, editor, created_at,"
+                    f" left(new_value, 200) AS preview, length(new_value) AS chars"
+                    f" FROM field_edit WHERE {where} ORDER BY fe_id DESC LIMIT 100", params)
+        return [{**r, "section": r["field"].removeprefix("draft_")} for r in cur.fetchall()]
+
+
+def restore(app_id: int, fe_id: int, editor: str = "담당자") -> dict:
+    """이력 시점 본문을 현재 란에 재반영 — 복원 자체도 save() 경유라 다시 이력에 남는다."""
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT field, new_value FROM field_edit"
+                    " WHERE fe_id=%s AND app_id=%s AND field LIKE 'draft_%%'", (fe_id, app_id))
+        row = cur.fetchone()
+    if not row:
+        return {"error": "해당 안건의 초안 이력이 아닙니다"}
+    section = row["field"].removeprefix("draft_")
+    r = save(app_id, section, row["new_value"] or "", editor=f"{editor}(이력 #{fe_id} 복원)")
+    return {**r, "section": section, "restored_from": fe_id}

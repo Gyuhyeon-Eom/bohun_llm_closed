@@ -836,6 +836,51 @@ def api_edit_field(app_id: int, req: FieldEditReq):
     return {"ok": True, "field": req.field}
 
 
+@app.get("/cases/{app_id}/missing-docs")  # 누락서류 안내 (검토의견 3 — 업로드 바로가기용 데이터)
+def api_missing_docs(app_id: int):
+    """분과 판단기준(doc 룰) 대조에서 미확인된 필요서류를 서류명 기준으로 집계 —
+    화면은 이 목록으로 안내 + /scan-docs/upload 바로가기 연계."""
+    from services import rule_check
+    r = rule_check.check(app_id)
+    if "error" in r:
+        return r
+    docs: dict[str, list[str]] = {}
+    for it in r["rules"]:
+        for d in it.get("missing_docs") or []:
+            docs.setdefault(d, []).append(it["axis"])
+    return {"missing": [{"doc": k, "axes": v} for k, v in docs.items()],
+            "count": len(docs),
+            "note": "판단기준 필요서류 자동대조 — 확보 여부 확정은 담당자(HITL)"}
+
+
+@app.get("/cases/{app_id}/law-snapshot")  # 확정 시 동결된 적용 법령 (검토의견 19)
+def api_law_snapshot(app_id: int):
+    import psycopg
+    from psycopg.rows import dict_row
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT dis_id, status, decided_at, law_snapshot FROM conclusion"
+                    " WHERE app_id=%s ORDER BY dis_id", (app_id,))
+        return cur.fetchall()
+
+
+@app.get("/case-draft/{app_id}/history")  # AI 작성이력 목록 (검토의견 37)
+def api_draft_history(app_id: int, section: str | None = None):
+    from services import case_draft
+    return case_draft.draft_history(app_id, section)
+
+
+class RestoreReq(BaseModel):
+    fe_id: int
+    editor: str = "담당자"
+
+
+@app.post("/case-draft/{app_id}/restore")  # 이력 시점 본문 재반영 (검토의견 37 — 복원도 이력에 남음)
+def api_draft_restore(app_id: int, req: RestoreReq):
+    from services import case_draft
+    return case_draft.restore(app_id, req.fe_id, req.editor)
+
+
 @app.get("/field-edits/{app_id}")     # 수정 이력 (교정 학습 축적분 확인)
 def api_field_edits(app_id: int):
     import psycopg

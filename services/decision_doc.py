@@ -278,10 +278,18 @@ def draft_judgment(app_id: int, dis_id: int, yeu_result: str, bosang_result: str
 
 
 def finalize(app_id: int, dis_id: int, body_text: str | None = None) -> dict:
-    """담당자 수정 반영 후 결론 확정 (스냅샷 동결)."""
+    """담당자 수정 반영 후 결론 확정 (스냅샷 동결).
+    확정 시 적용 법령 스냅샷(law_snapshot)도 동결 — 검토의견 19(사업단 회신:
+    '의결서에 함께 작성된 법령 데이터를 저장해두었다가 필요 시 표출')."""
     with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
         if body_text is not None:
             cur.execute("UPDATE conclusion SET body_text=%s WHERE app_id=%s AND dis_id=%s", (body_text, app_id, dis_id))
+        cur.execute("SELECT content FROM case_draft WHERE app_id=%s AND section='s3'", (app_id,))
+        s3 = (cur.fetchone() or [None])[0]
+        cur.execute("""UPDATE conclusion SET law_snapshot = jsonb_build_object(
+                         'yeu_clause', yeu_clause, 'bosang_clause', bosang_clause,
+                         's3_text', %s::text, 'saved_at', now()::text)
+                       WHERE app_id=%s AND dis_id=%s""", (s3, app_id, dis_id))
         cur.execute("UPDATE conclusion SET status='확정', decided_at=now() WHERE app_id=%s AND dis_id=%s", (app_id, dis_id))
         cur.execute("""UPDATE application SET status='의결' WHERE app_id=%s AND NOT EXISTS
                        (SELECT 1 FROM conclusion c JOIN disability d USING (dis_id)

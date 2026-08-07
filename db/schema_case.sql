@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS conclusion (           -- 07 결론 (확정 스냅샷
   bosang_clause TEXT, bosang_result TEXT,         -- 보훈보상 축: 조문/해당·비해당
   body_text   TEXT,                               -- 판단내용 (LLM 초안 -> 담당자 수정)
   final_text  TEXT,                               -- 확정결론문안
+  law_snapshot JSONB,                             -- 확정 시 적용 법령 동결 (검토의견 19 — 현행화와 무관하게 심의 당시 조문 표출)
   status      TEXT DEFAULT '작성중',               -- 작성중/확정
   decided_at  TIMESTAMPTZ,
   UNIQUE (app_id, dis_id, round)
