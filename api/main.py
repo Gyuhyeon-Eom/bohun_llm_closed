@@ -764,6 +764,24 @@ def api_case_draft_check(app_id: int, section: str, req: DraftCheckReq):
     return case_draft.set_check(app_id, section, req.idx, req.checked)
 
 
+class CheckAddReq(BaseModel):
+    label: str
+    required: bool = False
+    editor: str = "담당자"
+
+
+@app.post("/case-draft/{app_id}/{section}/checks/add")   # 체크 항목 추가 (검토의견 5·10 — 분과·질병별)
+def api_case_draft_check_add(app_id: int, section: str, req: CheckAddReq):
+    from services import case_draft
+    return case_draft.add_check(app_id, section, req.label, req.required, req.editor)
+
+
+@app.post("/case-draft/{app_id}/{section}/checks/remove")  # 체크 항목 삭제 (담당자 추가분만)
+def api_case_draft_check_remove(app_id: int, section: str, req: DraftCheckReq):
+    from services import case_draft
+    return case_draft.remove_check(app_id, section, req.idx)
+
+
 @app.get("/decision-doc/{app_id}/export-assembled")     # 의결서 조립 산출 (LLM 미사용)
 def api_export_assembled(app_id: int, fmt: str = "txt"):
     import tempfile

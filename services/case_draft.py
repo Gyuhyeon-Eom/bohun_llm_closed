@@ -261,3 +261,50 @@ def restore(app_id: int, fe_id: int, editor: str = "담당자") -> dict:
     section = row["field"].removeprefix("draft_")
     r = save(app_id, section, row["new_value"] or "", editor=f"{editor}(이력 #{fe_id} 복원)")
     return {**r, "section": section, "restored_from": fe_id}
+
+
+def add_check(app_id: int, section: str, label: str, required: bool = False,
+              editor: str = "담당자") -> dict:
+    """체크리스트 항목 추가 (검토의견 5·10 — 사업단 확답: 분과·질병별 필요 항목 선택 추가).
+    기본 항목은 매뉴얼 기반, 추가 항목은 custom 표식 — 확인(체크)은 담당자 몫(HITL)."""
+    if section not in SECTIONS:
+        return {"error": "section=s1|s2|s3"}
+    label = (label or "").strip()
+    if not label or len(label) > 200:
+        return {"error": "항목명은 1~200자"}
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT checks FROM case_draft WHERE app_id=%s AND section=%s",
+                    (app_id, section))
+        row = cur.fetchone()
+        checks = row["checks"] if row and row["checks"] else _init_checks(section)
+        if isinstance(checks, str):
+            checks = json.loads(checks)
+        if any(c.get("label") == label for c in checks):
+            return {"error": "이미 있는 항목"}
+        checks.append({"label": label, "required": bool(required),
+                       "checked": False, "custom": True, "editor": editor})
+        _upsert(cur, app_id, section, checks=json.dumps(checks, ensure_ascii=False))
+        conn.commit()
+    return {"ok": True, "checks": checks}
+
+
+def remove_check(app_id: int, section: str, idx: int) -> dict:
+    """체크리스트 항목 삭제 — custom 항목만 허용 (기본 항목은 매뉴얼 근거라 삭제 불가,
+    불필요 시 미체크로 두면 됨. required 승격 항목도 담당자 추가분이면 삭제 가능)."""
+    if section not in SECTIONS:
+        return {"error": "section=s1|s2|s3"}
+    with psycopg.connect(PG_DSN, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute("SELECT checks FROM case_draft WHERE app_id=%s AND section=%s",
+                    (app_id, section))
+        row = cur.fetchone()
+        checks = row["checks"] if row and row["checks"] else _init_checks(section)
+        if isinstance(checks, str):
+            checks = json.loads(checks)
+        if not 0 <= idx < len(checks):
+            return {"error": "idx 범위 밖"}
+        if not checks[idx].get("custom"):
+            return {"error": "기본 항목은 삭제 불가 — 담당자 추가 항목만 삭제할 수 있습니다"}
+        removed = checks.pop(idx)
+        _upsert(cur, app_id, section, checks=json.dumps(checks, ensure_ascii=False))
+        conn.commit()
+    return {"ok": True, "removed": removed.get("label"), "checks": checks}
