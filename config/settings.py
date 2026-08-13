@@ -132,7 +132,10 @@ SECURITY_FILTER_STRICT = os.getenv("SECURITY_FILTER_STRICT", "0") == "1"
 # AI 시스템은 통합보훈 DB에서만 읽는다(ECM 연계 안 함). 쓰기 권한은 보훈부 협의 미결 —
 # 확정 전 기본은 hold(우리 PG 보관 + API 조회).
 LINK_SRC_DSN = os.getenv("LINK_SRC_DSN", "")        # 통합보훈 DB 접속(읽기). 미설정 = 개발 모드(data/link_inbox 폴링)
-LINK_SRC_QUERY = os.getenv("LINK_SRC_QUERY", "")    # 신규 안건키 조회 SQL — 1열째가 원천안건키
+# 신규 안건키 조회 SQL — 1열째가 원천안건키. 원천은 심사등록 안건 테이블(RV_AGND, TB_AA020)
+#   기준(예: SELECT 안건SN FROM NXMPVA.RV_AGND WHERE ...) — 컬럼명은 테이블 명세 수령 후 확정.
+#   선별 원천 44종 목록은 ingestion/link_source_map.py 참조.
+LINK_SRC_QUERY = os.getenv("LINK_SRC_QUERY", "")
 LINK_SEND_MODE = os.getenv("LINK_SEND_MODE", "hold")  # hold=PG 보관 / db=통합보훈 신규 테이블 insert
 LINK_DEST_DSN = os.getenv("LINK_DEST_DSN", "")      # 전송 대상 DB (LINK_SEND_MODE=db일 때)
 LINK_POLL_S = int(os.getenv("LINK_POLL_S", "60"))   # 폴링 주기(초) — 발주처 협의 후 확정(미결)
