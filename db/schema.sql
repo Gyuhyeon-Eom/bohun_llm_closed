@@ -65,8 +65,10 @@ CREATE TABLE IF NOT EXISTS cases (
   summary     TEXT,
   summary_embedding vector(1024),
   duty_type   TEXT,             -- 소속(군인·공무원 등) — 상세검색 필터 (검토의견 39)
-  person_rank TEXT              -- 계급(직급) — 상세검색 필터
+  person_rank TEXT,             -- 계급(직급) — 상세검색 필터
+  src_case_key TEXT             -- 원천안건키(AGND_NO) — 백필 멱등 키
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cases_src_key ON cases(src_case_key) WHERE src_case_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_cases_hnsw ON cases USING hnsw (summary_embedding vector_cosine_ops);
 
 -- ===== 통계용 읽기전용 뷰 (Text-to-SQL 화이트리스트) =====

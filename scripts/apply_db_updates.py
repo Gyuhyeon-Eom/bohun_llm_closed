@@ -93,6 +93,9 @@ ALTER TABLE file_page ADD COLUMN IF NOT EXISTS unreadable_json JSONB;
 ALTER TABLE cases ADD COLUMN IF NOT EXISTS duty_type TEXT;
 ALTER TABLE cases ADD COLUMN IF NOT EXISTS person_rank TEXT;
 ALTER TABLE conclusion ADD COLUMN IF NOT EXISTS law_snapshot JSONB;
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS src_case_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cases_src_key ON cases(src_case_key)
+  WHERE src_case_key IS NOT NULL;
 """
 
 
