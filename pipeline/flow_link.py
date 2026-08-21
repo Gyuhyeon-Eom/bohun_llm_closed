@@ -38,7 +38,7 @@ from psycopg.rows import dict_row
 from config.settings import (
     BATCH_STEPS, LINK_BATCH, LINK_DEST_DSN, LINK_INBOX, LINK_POLL_S,
     LINK_RETRY_MAX, LINK_SEND_MODE, LINK_SRC_DSN, LINK_SRC_QUERY,
-    LINK_ZOMBIE_MIN, PG_DSN, UPLOAD_INBOX,
+    LINK_ZOMBIE_MIN, PG_DSN, UPLOAD_INBOX, UPLOAD_PREFIX, UPLOAD_SWEEP_MAX,
 )
 from pipeline.batch_window import in_batch_window
 from pipeline.runlog import RunLog
@@ -286,9 +286,9 @@ def process(conn, row: dict, log, steps: tuple[str, ...] | None = None) -> bool:
 # ── 순회·상주 ────────────────────────────────────────────────────────────────
 
 def sweep_upload_inbox(log) -> int:
-    """대량 업로드 수신함(UPLOAD_INBOX) 일괄 처리 — 업무외시간 윈도우 안에서만 호출된다.
-    운영 중 추가 반입·대량 등록 파일을 폴더에 떨어뜨려 두면 야간에 자동 소화.
-    성공 파일은 done/, 실패 파일은 fail/로 이동해 재처리·원인 확인이 쉽다."""
+    """로컬 업로드 수신함(UPLOAD_INBOX) 일괄 처리 — 업무외시간 윈도우 안에서만 호출된다.
+    성공 파일은 done/, 실패 파일은 fail/로 이동해 재처리·원인 확인이 쉽다.
+    파일마다 윈도우를 재확인해 아침이 되면 즉시 멈춘다(남은 건 다음 야간)."""
     box = Path(UPLOAD_INBOX)
     if not box.is_dir():
         return 0
@@ -298,7 +298,9 @@ def sweep_upload_inbox(log) -> int:
         return 0
     from pipeline import flow_ingest
     n = 0
-    for f in files[:LINK_BATCH * 4]:   # 1순회 상한 — 남은 건 다음 순회(윈도우 재확인)로
+    for f in files[:UPLOAD_SWEEP_MAX]:
+        if not in_batch_window():
+            break
         try:
             flow_ingest.run([str(f)])
             (box / "done").mkdir(exist_ok=True)
@@ -308,6 +310,56 @@ def sweep_upload_inbox(log) -> int:
             log.warn(f"업로드 처리 실패 — {f.name}: {type(e).__name__}: {e}")
             (box / "fail").mkdir(exist_ok=True)
             f.rename(box / "fail" / f.name)
+    return n
+
+
+def sweep_minio_inbox(log) -> int:
+    """MinIO 수신함(버킷의 UPLOAD_PREFIX 아래) 일괄 처리 — 대량 사전 적재(수십만 건) 경로.
+    운영 절차: mc mirror 등으로 원본 PDF를 s3://<버킷>/inbox/ 에 밀어넣어 두면
+    업무외시간마다 워커가 내려받아 전사·적재한다.
+      성공: 원본은 파이프라인이 정식 경로(scans/<문서ID>/)에 재적재하므로 inbox 사본은 삭제
+            (중복 보관으로 스토리지 2배가 되는 것을 방지)
+      실패: inbox_fail/ 프리픽스로 이동해 원인 확인·재투입이 쉽게
+    파일마다 윈도우를 재확인해 아침이 되면 즉시 멈춘다."""
+    if not UPLOAD_PREFIX:
+        return 0
+    try:
+        from core.storage import get_storage
+        st = get_storage()
+        if getattr(st, "backend", "local") != "minio":
+            return 0
+        objs = st.cli.list_objects(st.bucket, prefix=UPLOAD_PREFIX, recursive=True)
+    except Exception as e:
+        log.warn(f"MinIO 수신함 조회 실패 — {type(e).__name__}: {e}")
+        return 0
+    import shutil
+    import tempfile
+    from minio.commonconfig import CopySource
+    from pipeline import flow_ingest
+    n = 0
+    for o in objs:
+        if n >= UPLOAD_SWEEP_MAX or not in_batch_window():
+            break
+        key = o.object_name
+        if key.endswith("/") or Path(key).suffix.lower() not in (".pdf", ".txt"):
+            continue
+        tmp_dir = tempfile.mkdtemp(prefix="inbox_")
+        tmp = str(Path(tmp_dir) / Path(key).name)
+        try:
+            st.cli.fget_object(st.bucket, key, tmp)
+            flow_ingest.run([tmp])
+            st.cli.remove_object(st.bucket, key)   # 정식 경로 재적재 완료 — inbox 사본 정리
+            n += 1
+        except Exception as e:
+            log.warn(f"MinIO 업로드 처리 실패 — {key}: {type(e).__name__}: {e}")
+            try:
+                fail_key = "inbox_fail/" + key[len(UPLOAD_PREFIX):]
+                st.cli.copy_object(st.bucket, fail_key, CopySource(st.bucket, key))
+                st.cli.remove_object(st.bucket, key)
+            except Exception:
+                pass   # 이동 실패 시 원위치 유지 — 다음 순회에서 재시도
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
     return n
 
 
@@ -334,9 +386,10 @@ def run_once(out_dir: str = "out", steps: tuple[str, ...] | None = None) -> dict
             d.update(신규적재=enqueue_new(cur) if polls else 0, 좀비회수=reap_zombies(cur))
             conn.commit()
         if polls and windowed:
-            n_up = sweep_upload_inbox(log)
+            n_up = sweep_upload_inbox(log) + sweep_minio_inbox(log)
             if n_up:
-                log.info(f"업로드 수신함 처리 {n_up}건", inbox=UPLOAD_INBOX)
+                log.info(f"업로드 수신함 처리 {n_up}건",
+                         local=UPLOAD_INBOX, minio_prefix=UPLOAD_PREFIX or "-")
         while True:
             eff = steps   # 픽업마다 게이트 재평가 — 긴 순회 중 윈도우가 닫히면 무거운 단계 즉시 보류
             if BATCH_STEPS and not in_batch_window():

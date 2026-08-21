@@ -93,6 +93,8 @@ services:
       BATCH_WINDOW: ${BATCH_WINDOW:-18:00-08:00}
       BATCH_WEEKEND: ${BATCH_WEEKEND:-1}
       BATCH_STEPS: ${BATCH_STEPS:-VLM추출,임베딩}
+      UPLOAD_PREFIX: ${UPLOAD_PREFIX:-inbox/}
+      UPLOAD_SWEEP_MAX: ${UPLOAD_SWEEP_MAX:-200}
       VLM_CONCURRENCY: ${VLM_CONCURRENCY:-2}
     volumes:
       - ../out:/app/out          # 산출물(의결서·심사표·런 매니페스트)

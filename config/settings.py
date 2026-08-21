@@ -149,4 +149,6 @@ LINK_INBOX = os.getenv("LINK_INBOX", "data/link_inbox")  # 개발 모드 수집�
 BATCH_WINDOW = os.getenv("BATCH_WINDOW", "18:00-08:00")  # HH:MM-HH:MM(자정 넘김 허용). ""=게이트 없음
 BATCH_WEEKEND = os.getenv("BATCH_WEEKEND", "1") == "1"   # 주말은 종일 허용
 BATCH_STEPS = tuple(s.strip() for s in os.getenv("BATCH_STEPS", "VLM추출,임베딩").split(",") if s.strip())
-UPLOAD_INBOX = os.getenv("UPLOAD_INBOX", "data/upload_inbox")  # 대량 업로드 수신함 — 윈도우 내 일괄 처리
+UPLOAD_INBOX = os.getenv("UPLOAD_INBOX", "data/upload_inbox")  # 로컬 수신함 — 윈도우 내 일괄 처리
+UPLOAD_PREFIX = os.getenv("UPLOAD_PREFIX", "inbox/")  # MinIO 수신함 프리픽스 — 대량 적재(40만 건)는 여기로. ""=비활성
+UPLOAD_SWEEP_MAX = int(os.getenv("UPLOAD_SWEEP_MAX", "200"))  # 1순회 처리 상한(파일 단위 윈도우 재확인)
