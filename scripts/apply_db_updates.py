@@ -96,6 +96,16 @@ ALTER TABLE conclusion ADD COLUMN IF NOT EXISTS law_snapshot JSONB;
 ALTER TABLE cases ADD COLUMN IF NOT EXISTS src_case_key TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_cases_src_key ON cases(src_case_key)
   WHERE src_case_key IS NOT NULL;
+ALTER TABLE scan_doc ADD COLUMN IF NOT EXISTS doc_type TEXT;
+ALTER TABLE scan_doc ADD COLUMN IF NOT EXISTS doc_type_conf TEXT;
+CREATE TABLE IF NOT EXISTS ingest_claim (
+  obj_key    TEXT PRIMARY KEY,
+  worker     TEXT,
+  stat_cd    TEXT NOT NULL DEFAULT '처리중',
+  err_msg    TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
 """
 
 

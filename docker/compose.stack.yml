@@ -93,6 +93,7 @@ services:
       BATCH_WINDOW: ${BATCH_WINDOW:-18:00-08:00}
       BATCH_WEEKEND: ${BATCH_WEEKEND:-1}
       BATCH_STEPS: ${BATCH_STEPS:-VLM추출,임베딩}
+      TRANSCRIBER: ${TRANSCRIBER:-vlm}
       UPLOAD_PREFIX: ${UPLOAD_PREFIX:-inbox/}
       UPLOAD_SWEEP_MAX: ${UPLOAD_SWEEP_MAX:-200}
       VLM_CONCURRENCY: ${VLM_CONCURRENCY:-2}
@@ -128,6 +129,28 @@ services:
       minio:
         condition: service_healthy
     restart: unless-stopped
+
+  # ── 백필 다중 백엔드 병렬(선택): 같은 MinIO 수신함(inbox/)을 전사 경로가 다른 워커들이
+  #    동시에 소진한다. ingest_claim 선점으로 이중 처리 없음 — 필요 시 주석 해제.
+  #    worker(기본)=vlm(자체 GPU) / worker-i2t=공통기반 I2T / worker-parsing=Parsing API
+  # worker-i2t:
+  #   build: {context: .., dockerfile: docker/Dockerfile.pipeline, args: {WITH_ML: "0", OFFLINE: "${OFFLINE:-0}"}}
+  #   entrypoint: ["python", "scripts/worker_daemon.py", "--no-bootstrap"]
+  #   environment:
+  #     <<: *app-env
+  #     TRANSCRIBER: fabrix
+  #   volumes: ["../out:/app/out", "../data:/app/data"]
+  #   depends_on: {db: {condition: service_healthy}, minio: {condition: service_healthy}}
+  #   restart: unless-stopped
+  # worker-parsing:
+  #   build: {context: .., dockerfile: docker/Dockerfile.pipeline, args: {WITH_ML: "0", OFFLINE: "${OFFLINE:-0}"}}
+  #   entrypoint: ["python", "scripts/worker_daemon.py", "--no-bootstrap"]
+  #   environment:
+  #     <<: *app-env
+  #     TRANSCRIBER: parsing
+  #   volumes: ["../out:/app/out", "../data:/app/data"]
+  #   depends_on: {db: {condition: service_healthy}, minio: {condition: service_healthy}}
+  #   restart: unless-stopped
 
 volumes:
   pgdata:

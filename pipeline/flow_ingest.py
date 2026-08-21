@@ -21,6 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from config.settings import INDEX_SKIP_TYPES
 from pipeline.runlog import RunLog
 
 VLM_CONCURRENCY = int(os.getenv("VLM_CONCURRENCY", "2"))
@@ -43,9 +44,9 @@ def _transcribe_page(png: bytes, transcriber: str) -> tuple[str, list[str]]:
                 return pytesseract.image_to_string(Image.open(io.BytesIO(png)),
                                                    lang="kor+eng", timeout=120), []
             one = fabrix_transcribe if transcriber == "fabrix" else vlm_transcribe
-            text = clean_transcript(merge_tiles(
-                [one(t) for t in split_tiles(png, VLM_TILES)]))
-            return text, sanity(text)
+            parts = [one(t) for t in split_tiles(png, VLM_TILES)]
+            text = clean_transcript(merge_tiles(parts))
+            return text, sanity(text, parts)
         except Exception as e:
             last = e
             time.sleep(2 ** attempt)
@@ -87,6 +88,7 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
             with log.stage("적재(기 OCR txt)", file=p.name) as d:
                 sd_id, person, disease, nblk = ingest_real_txt(str(p))
                 d.update(sd_id=sd_id, person=_mask(person), blocks=nblk)
+            texts = [p.read_text(encoding="utf-8", errors="ignore")]
         else:
             with log.stage("전사", file=p.name, transcriber=transcriber) as d:
                 pages = list(render_pages(p, dpi))
@@ -108,6 +110,17 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
                 d.update(sd_id=sd_id, person=_mask(head.get("person")), blocks=nblk,
                          storage=_storage_backend())
                 _flag_review_pages(sd_id, warns_all)
+                _record_extract_meta(sd_id, texts,
+                                     os.getenv("VLM_MODEL", transcriber))
+
+        # ①-b 서류 유형 분류 (전사 텍스트 표제 기반 — 전량 스캔 덤프 전제라 전사 '후' 분류).
+        #      분류가 틀려도 전사 원문은 전량 보존 — 색인 제외·추출 대상 선정에만 영향.
+        from ingestion.doc_classifier import classify
+        doc_type, conf, evi = classify(texts)
+        _save_doc_type(sd_id, doc_type, conf)
+        skip_index = doc_type in INDEX_SKIP_TYPES and conf != "저신뢰"
+        log.info(f"유형 분류 — {doc_type}({conf})" + (f" 근거:{evi}" if evi else "")
+                 + (" → 색인 제외" if skip_index else ""), sd_id=sd_id)
 
         # ② LLM 필드 정규화 (블록별 — 실패 블록은 규칙 폴백, 전체 파이프라인은 계속)
         if normalize:
@@ -116,7 +129,9 @@ def run(paths: list[str], transcriber: str = "vlm", dpi: int = 260,
                 d.update(**{k: r[k] for k in ("total", "llm", "rule") if k in r})
 
         # ③ RAG 색인 (정리본 → 청킹·임베딩 → 챗봇·초안 근거 검색 대상)
-        if index:
+        #    신분·행정 서류(INDEX_SKIP_TYPES)는 색인 게이트에서 제외 — 비식별화 설계 3장 이중 방어.
+        #    저신뢰 분류는 제외하지 않는다(오판으로 근거 서류가 검색에서 빠지는 손실 방지).
+        if index and not skip_index:
             with log.stage("RAG 색인", sd_id=sd_id) as d:
                 r = ocr_normalize.index_clean(sd_id, emb)
                 d.update(**{k: v for k, v in r.items() if isinstance(v, (int, str))})
@@ -144,6 +159,15 @@ def _storage_backend() -> str:
     return get_storage().backend
 
 
+def _save_doc_type(sd_id: int, doc_type: str, conf: str):
+    import psycopg
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE scan_doc SET doc_type=%s, doc_type_conf=%s WHERE sd_id=%s",
+                    (doc_type, conf, sd_id))
+        conn.commit()
+
+
 def _flag_review_pages(sd_id: int, pages: list[int]):
     """환각 기계검사에 걸린 페이지 → file_page 검수 필요(reviewed=false 유지 + confidence 0)."""
     if not pages:
@@ -154,4 +178,19 @@ def _flag_review_pages(sd_id: int, pages: list[int]):
         for no in set(pages):
             cur.execute("UPDATE file_page SET confidence=0 WHERE sd_id=%s AND page_no=%s",
                         (sd_id, no))
+        conn.commit()
+
+
+def _record_extract_meta(sd_id: int, texts: list[str], model: str):
+    """10_문서추출(v0.9) 추출모델명·판독불가JSON 기록 — 환각 방지 규칙으로 전사된
+    ⟦판독불가⟧ 개수를 페이지별 저장(담당자 검수 화면의 우선순위 근거)."""
+    import psycopg
+    from config.settings import PG_DSN
+    with psycopg.connect(PG_DSN) as conn, conn.cursor() as cur:
+        for no, t in enumerate(texts, 1):
+            n = t.count("⟦판독불가⟧")
+            cur.execute("UPDATE file_page SET extract_model=%s,"
+                        " unreadable_json=CASE WHEN %s > 0 THEN jsonb_build_object('count', %s)"
+                        " ELSE unreadable_json END WHERE sd_id=%s AND page_no=%s",
+                        (model, n, n, sd_id, no))
         conn.commit()

@@ -152,3 +152,8 @@ BATCH_STEPS = tuple(s.strip() for s in os.getenv("BATCH_STEPS", "VLM추출,임�
 UPLOAD_INBOX = os.getenv("UPLOAD_INBOX", "data/upload_inbox")  # 로컬 수신함 — 윈도우 내 일괄 처리
 UPLOAD_PREFIX = os.getenv("UPLOAD_PREFIX", "inbox/")  # MinIO 수신함 프리픽스 — 대량 적재(40만 건)는 여기로. ""=비활성
 UPLOAD_SWEEP_MAX = int(os.getenv("UPLOAD_SWEEP_MAX", "200"))  # 1순회 처리 상한(파일 단위 윈도우 재확인)
+# 워커별 전사 백엔드 — 같은 수신함을 서로 다른 백엔드 워커가 병렬 소진(백필 다중 경로).
+# vlm=자체 GPU 서빙 / fabrix=공통기반 I2T / parsing=공통기반 Parsing API / tesseract=개발 대체
+TRANSCRIBER = os.getenv("TRANSCRIBER", "vlm")
+# 분류 결과 색인 제외 유형(개인정보 밀도 높고 근거 가치 낮음 — 전사·보존은 하되 검색 색인만 제외)
+INDEX_SKIP_TYPES = tuple(s.strip() for s in os.getenv("INDEX_SKIP_TYPES", "ADM,APP").split(",") if s.strip())

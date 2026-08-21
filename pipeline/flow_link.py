@@ -38,7 +38,8 @@ from psycopg.rows import dict_row
 from config.settings import (
     BATCH_STEPS, LINK_BATCH, LINK_DEST_DSN, LINK_INBOX, LINK_POLL_S,
     LINK_RETRY_MAX, LINK_SEND_MODE, LINK_SRC_DSN, LINK_SRC_QUERY,
-    LINK_ZOMBIE_MIN, PG_DSN, UPLOAD_INBOX, UPLOAD_PREFIX, UPLOAD_SWEEP_MAX,
+    LINK_ZOMBIE_MIN, PG_DSN, TRANSCRIBER, UPLOAD_INBOX, UPLOAD_PREFIX,
+    UPLOAD_SWEEP_MAX,
 )
 from pipeline.batch_window import in_batch_window
 from pipeline.runlog import RunLog
@@ -285,9 +286,15 @@ def process(conn, row: dict, log, steps: tuple[str, ...] | None = None) -> bool:
 
 # ── 순회·상주 ────────────────────────────────────────────────────────────────
 
+def _worker_id() -> str:
+    import os
+    return os.getenv("HOSTNAME") or f"pid{os.getpid()}"
+
+
 def sweep_upload_inbox(log) -> int:
     """로컬 업로드 수신함(UPLOAD_INBOX) 일괄 처리 — 업무외시간 윈도우 안에서만 호출된다.
-    성공 파일은 done/, 실패 파일은 fail/로 이동해 재처리·원인 확인이 쉽다.
+    선점: work/로 원자적 이동(rename)에 성공한 워커만 처리 — 같은 볼륨을 공유하는
+    다중 워커가 있어도 이중 처리 없음. 성공 done/, 실패 fail/ 이동.
     파일마다 윈도우를 재확인해 아침이 되면 즉시 멈춘다(남은 건 다음 야간)."""
     box = Path(UPLOAD_INBOX)
     if not box.is_dir():
@@ -297,28 +304,35 @@ def sweep_upload_inbox(log) -> int:
     if not files:
         return 0
     from pipeline import flow_ingest
+    work = box / "work"
+    work.mkdir(exist_ok=True)
     n = 0
     for f in files[:UPLOAD_SWEEP_MAX]:
         if not in_batch_window():
             break
+        w = work / f.name
         try:
-            flow_ingest.run([str(f)])
+            f.rename(w)          # 선점 — 이미 다른 워커가 가져갔으면 실패하고 건너뜀
+        except OSError:
+            continue
+        try:
+            flow_ingest.run([str(w)], transcriber=TRANSCRIBER)
             (box / "done").mkdir(exist_ok=True)
-            f.rename(box / "done" / f.name)
+            w.rename(box / "done" / f.name)
             n += 1
         except Exception as e:
             log.warn(f"업로드 처리 실패 — {f.name}: {type(e).__name__}: {e}")
             (box / "fail").mkdir(exist_ok=True)
-            f.rename(box / "fail" / f.name)
+            w.rename(box / "fail" / f.name)
     return n
 
 
-def sweep_minio_inbox(log) -> int:
+def sweep_minio_inbox(conn, log) -> int:
     """MinIO 수신함(버킷의 UPLOAD_PREFIX 아래) 일괄 처리 — 대량 사전 적재(수십만 건) 경로.
     운영 절차: mc mirror 등으로 원본 PDF를 s3://<버킷>/inbox/ 에 밀어넣어 두면
-    업무외시간마다 워커가 내려받아 전사·적재한다.
+    워커들이 내려받아 전사·적재한다(백필 다중 백엔드: TRANSCRIBER가 다른 워커 여러 기가
+    같은 수신함을 병렬 소진 — ingest_claim 선점으로 이중 처리 없음).
       성공: 원본은 파이프라인이 정식 경로(scans/<문서ID>/)에 재적재하므로 inbox 사본은 삭제
-            (중복 보관으로 스토리지 2배가 되는 것을 방지)
       실패: inbox_fail/ 프리픽스로 이동해 원인 확인·재투입이 쉽게
     파일마다 윈도우를 재확인해 아침이 되면 즉시 멈춘다."""
     if not UPLOAD_PREFIX:
@@ -336,6 +350,11 @@ def sweep_minio_inbox(log) -> int:
     import tempfile
     from minio.commonconfig import CopySource
     from pipeline import flow_ingest
+    wid = _worker_id()
+    with conn.cursor() as cur:   # 좀비 선점 해제 — 워커 사망분은 다음 순회에서 재처리
+        cur.execute("DELETE FROM ingest_claim WHERE stat_cd='처리중'"
+                    " AND updated_at < now() - make_interval(mins => %s)", (LINK_ZOMBIE_MIN,))
+        conn.commit()
     n = 0
     for o in objs:
         if n >= UPLOAD_SWEEP_MAX or not in_batch_window():
@@ -343,12 +362,23 @@ def sweep_minio_inbox(log) -> int:
         key = o.object_name
         if key.endswith("/") or Path(key).suffix.lower() not in (".pdf", ".txt"):
             continue
+        with conn.cursor() as cur:   # 선점 — 먼저 INSERT한 워커만 처리(다중 워커 안전)
+            cur.execute("INSERT INTO ingest_claim(obj_key, worker) VALUES (%s, %s)"
+                        " ON CONFLICT (obj_key) DO NOTHING", (key, wid))
+            claimed = cur.rowcount == 1
+            conn.commit()
+        if not claimed:
+            continue
         tmp_dir = tempfile.mkdtemp(prefix="inbox_")
         tmp = str(Path(tmp_dir) / Path(key).name)
         try:
             st.cli.fget_object(st.bucket, key, tmp)
-            flow_ingest.run([tmp])
+            flow_ingest.run([tmp], transcriber=TRANSCRIBER)
             st.cli.remove_object(st.bucket, key)   # 정식 경로 재적재 완료 — inbox 사본 정리
+            with conn.cursor() as cur:
+                cur.execute("UPDATE ingest_claim SET stat_cd='완료', updated_at=now()"
+                            " WHERE obj_key=%s", (key,))
+                conn.commit()
             n += 1
         except Exception as e:
             log.warn(f"MinIO 업로드 처리 실패 — {key}: {type(e).__name__}: {e}")
@@ -357,7 +387,12 @@ def sweep_minio_inbox(log) -> int:
                 st.cli.copy_object(st.bucket, fail_key, CopySource(st.bucket, key))
                 st.cli.remove_object(st.bucket, key)
             except Exception:
-                pass   # 이동 실패 시 원위치 유지 — 다음 순회에서 재시도
+                pass   # 이동 실패 시 원위치 유지 — 좀비 해제 후 재시도됨
+            with conn.cursor() as cur:
+                cur.execute("UPDATE ingest_claim SET stat_cd='실패', err_msg=%s,"
+                            " updated_at=now() WHERE obj_key=%s",
+                            (f"{type(e).__name__}: {e}"[:500], key))
+                conn.commit()
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
     return n
@@ -386,9 +421,9 @@ def run_once(out_dir: str = "out", steps: tuple[str, ...] | None = None) -> dict
             d.update(신규적재=enqueue_new(cur) if polls else 0, 좀비회수=reap_zombies(cur))
             conn.commit()
         if polls and windowed:
-            n_up = sweep_upload_inbox(log) + sweep_minio_inbox(log)
+            n_up = sweep_upload_inbox(log) + sweep_minio_inbox(conn, log)
             if n_up:
-                log.info(f"업로드 수신함 처리 {n_up}건",
+                log.info(f"업로드 수신함 처리 {n_up}건 (전사: {TRANSCRIBER})",
                          local=UPLOAD_INBOX, minio_prefix=UPLOAD_PREFIX or "-")
         while True:
             eff = steps   # 픽업마다 게이트 재평가 — 긴 순회 중 윈도우가 닫히면 무거운 단계 즉시 보류
