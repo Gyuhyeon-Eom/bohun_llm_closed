@@ -1,9 +1,13 @@
-# 파이프라인 전용 스택 (웹 없음) — db + minio + pipeline CLI
-#   기동:   docker compose -f docker/compose.stack.yml up -d db minio
+# 파이프라인 전용 스택 (웹 없음) — db + minio + worker(상주) + pipeline CLI
+#   기동(원터치): docker compose -f docker/compose.stack.yml up -d
+#     → db·minio·worker가 뜨고, worker가 부트스트랩(DB 대기→스키마·룰 적용→스토리지 준비,
+#       멱등)을 스스로 수행한 뒤 연계 큐를 상시 처리한다. 별도 수작업 없음.
+#     → 무거운 단계(VLM추출·임베딩)와 업로드 수신함(data/upload_inbox의 *.pdf|txt)은
+#       업무외시간(BATCH_WINDOW, 기본 18:00~08:00 + 주말)에만 소화한다.
 #   점검:   docker compose -f docker/compose.stack.yml run --rm pipeline check
-#   실행:   docker compose -f docker/compose.stack.yml run --rm -v $PWD/in:/in -v $PWD/out:/app/out \
+#   수동 실행: docker compose -f docker/compose.stack.yml run --rm -v $PWD/in:/in \
 #             pipeline ingest /in/스캔.pdf --convert grade
-# 스키마 최초 적용: run --rm --entrypoint python pipeline scripts/apply_db_updates.py
+# 스키마 수동 적용(선택 — worker가 자동 수행): run --rm --entrypoint python pipeline scripts/bootstrap.py
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -43,7 +47,7 @@ services:
       args:
         WITH_ML: ${WITH_ML:-1}
         OFFLINE: ${OFFLINE:-0}
-    environment:
+    environment: &app-env
       PG_DSN: postgresql://${POSTGRES_USER:-bohun}:${POSTGRES_PASSWORD:-bohun}@db:5432/${POSTGRES_DB:-bohun}
       STORAGE_BACKEND: minio
       MINIO_ENDPOINT: minio:9000
@@ -77,6 +81,19 @@ services:
       RERANK_API: ${RERANK_API:-}
       SECURITY_FILTER_API: ${SECURITY_FILTER_API:-}
       SECURITY_FILTER_MODE: ${SECURITY_FILTER_MODE:-in,out}
+      # ── 연계 워커·업무외시간 배치 ──
+      LINK_SRC_DSN: ${LINK_SRC_DSN:-}
+      LINK_SRC_QUERY: ${LINK_SRC_QUERY:-}
+      LINK_SEND_MODE: ${LINK_SEND_MODE:-hold}
+      LINK_DEST_DSN: ${LINK_DEST_DSN:-}
+      LINK_POLL_S: ${LINK_POLL_S:-60}
+      LINK_BATCH: ${LINK_BATCH:-5}
+      LINK_INBOX: /app/data/link_inbox
+      UPLOAD_INBOX: /app/data/upload_inbox
+      BATCH_WINDOW: ${BATCH_WINDOW:-18:00-08:00}
+      BATCH_WEEKEND: ${BATCH_WEEKEND:-1}
+      BATCH_STEPS: ${BATCH_STEPS:-VLM추출,임베딩}
+      VLM_CONCURRENCY: ${VLM_CONCURRENCY:-2}
     volumes:
       - ../out:/app/out          # 산출물(의결서·심사표·런 매니페스트)
       - /models:/models:ro       # 반입 임베딩 모델 (호스트 경로 조정)
@@ -86,6 +103,29 @@ services:
       minio:
         condition: service_healthy
     profiles: ["cli"]            # run --rm pipeline ... 로만 사용 (상주 아님)
+
+  worker:
+    # 상주 연계 워커 — 기동 시 부트스트랩(멱등) 후 큐 폴링. up -d 만으로 전체 준비 완료.
+    # 단계별 워커 분리 운용 시 command에 --steps 지정해 서비스 복제:
+    #   command: ["--steps", "수집,VLM추출"] / ["--steps", "임베딩,초안생성,전송"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.pipeline
+      args:
+        WITH_ML: ${WITH_ML:-1}
+        OFFLINE: ${OFFLINE:-0}
+    entrypoint: ["python", "scripts/worker_daemon.py"]
+    environment: *app-env
+    volumes:
+      - ../out:/app/out
+      - ../data:/app/data        # 업로드 수신함(data/upload_inbox)·개발 수집함(link_inbox)
+      - /models:/models:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:

@@ -84,6 +84,57 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # 상주 연계 워커 — 기동 시 부트스트랩(멱등) 후 39 큐 폴링. 무거운 단계(VLM추출·임베딩)와
+  # 업로드 수신함(data/upload_inbox)은 업무외시간(BATCH_WINDOW)에만 소화한다.
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pipeline
+      args:
+        WITH_ML: ${WITH_ML:-0}
+        OFFLINE: ${OFFLINE:-0}
+    entrypoint: ["python", "scripts/worker_daemon.py"]
+    environment:
+      PG_DSN: postgresql://${POSTGRES_USER:-bohun}:${POSTGRES_PASSWORD:-bohun}@db:5432/${POSTGRES_DB:-bohun}
+      STORAGE_BACKEND: minio
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-bohun}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-bohun-secret}
+      LLM_BACKEND: ${LLM_BACKEND:-mock}
+      EMBED_BACKEND: ${EMBED_BACKEND:-hash}
+      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-m3}
+      FABRIX_BASE_URL: ${FABRIX_BASE_URL:-}
+      FABRIX_CLIENT_KEY: ${FABRIX_CLIENT_KEY:-}
+      FABRIX_PASS_KEY: ${FABRIX_PASS_KEY:-}
+      FABRIX_MODEL_ID_MAIN: ${FABRIX_MODEL_ID_MAIN:-}
+      FABRIX_MODEL_ID_LIGHT: ${FABRIX_MODEL_ID_LIGHT:-}
+      LLM_MODEL_MAIN: ${LLM_MODEL_MAIN:-gpt-oss-120b}
+      LLM_MODEL_LIGHT: ${LLM_MODEL_LIGHT:-gemma-4-31b}
+      VLM_ENDPOINT: ${VLM_ENDPOINT:-}
+      VLM_MODEL: ${VLM_MODEL:-}
+      LINK_SRC_DSN: ${LINK_SRC_DSN:-}
+      LINK_SRC_QUERY: ${LINK_SRC_QUERY:-}
+      LINK_SEND_MODE: ${LINK_SEND_MODE:-hold}
+      LINK_POLL_S: ${LINK_POLL_S:-60}
+      LINK_BATCH: ${LINK_BATCH:-5}
+      LINK_INBOX: /app/data/link_inbox
+      UPLOAD_INBOX: /app/data/upload_inbox
+      BATCH_WINDOW: ${BATCH_WINDOW:-18:00-08:00}
+      BATCH_WEEKEND: ${BATCH_WEEKEND:-1}
+      BATCH_STEPS: ${BATCH_STEPS:-VLM추출,임베딩}
+      VLM_CONCURRENCY: ${VLM_CONCURRENCY:-2}
+      SECURITY_FILTER_API: ${SECURITY_FILTER_API:-}
+    volumes:
+      - ./out:/app/out
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
   # 개발용 로컬 LLM (운영 폐쇄망은 FabriX — 이 서비스는 반입 불필요)
   ollama:
     image: ollama/ollama:latest

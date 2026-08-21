@@ -143,3 +143,10 @@ LINK_RETRY_MAX = int(os.getenv("LINK_RETRY_MAX", "3"))
 LINK_ZOMBIE_MIN = int(os.getenv("LINK_ZOMBIE_MIN", "30"))  # '처리중' 방치 회수 기준(분)
 LINK_BATCH = int(os.getenv("LINK_BATCH", "5"))      # 1회 픽업 건수
 LINK_INBOX = os.getenv("LINK_INBOX", "data/link_inbox")  # 개발 모드 수집함: <원천안건키>/*.pdf|txt
+
+# ── 업무외시간 배치 (무거운 단계를 업무시간 밖으로 — GPU·자원 구성 설계 5.3) ──
+# 수집·초안·전송 등 경량 단계는 상시, BATCH_STEPS(GPU·색인 바운드)는 윈도우 안에서만 픽업.
+BATCH_WINDOW = os.getenv("BATCH_WINDOW", "18:00-08:00")  # HH:MM-HH:MM(자정 넘김 허용). ""=게이트 없음
+BATCH_WEEKEND = os.getenv("BATCH_WEEKEND", "1") == "1"   # 주말은 종일 허용
+BATCH_STEPS = tuple(s.strip() for s in os.getenv("BATCH_STEPS", "VLM추출,임베딩").split(",") if s.strip())
+UPLOAD_INBOX = os.getenv("UPLOAD_INBOX", "data/upload_inbox")  # 대량 업로드 수신함 — 윈도우 내 일괄 처리
